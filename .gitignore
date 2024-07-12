@@ -1,6 +1,14 @@
+# Pycache
 __pycache__/
 environment/__pycache__
 model/__pycache__
 utils/__pycache__
 
+# Training logs
 logs_rl
+
+# VSCODE settings
+.vscode
+
+# Notebooks
+notebooks
