@@ -1,3 +1,4 @@
+from datetime import datetime
 import jax
 import os
 
@@ -13,7 +14,7 @@ if __name__ == "__main__":
         "aneal_learning_rate": True,
         "clip_eps": 0.2,
         "ent_coef": 0.01,
-        "env_name": 'MiniGrid-Empty-5x5-v0',
+        "env_name": 'MiniGrid-Empty-8x8-v0',
         "extractor": 'ExtractObs',
         "feature_extractor": 'KeyExtractor',
         "feature_extractor_kwargs": {
@@ -22,20 +23,31 @@ if __name__ == "__main__":
             'keys': ['im_dir'],
             'kwargs': {}
         },
+        "freq_save": 1,
         "gae_lambda": 0.95,
         "gamma": 0.99,
         "key": 42,
         "learning_rate": 2.5e-4,
         "max_grad_norm": 0.5,
-        "num_envs": 4,
-        "num_minibatchs": 1, # Must divide num_envs
-        "num_steps": 16,
-        "total_time_steps": 5e6,
+        "num_envs": 128,
+        "num_minibatchs": 8, # Must divide num_envs
+        "num_steps": 128,
+        "total_time_steps": 5e8,
         "update_epochs": 1,
         "vf_coef": 0.5
     }
+
+    current_time = datetime.now()
+    date_string = current_time.strftime("%Y%m%d_%H%M%S")
+
+    log_folder = f"logs_rl/{date_string}"
+    os.makedirs(log_folder, exist_ok='True')
+
+    config['log_folder'] = log_folder
 
     training = make_train(config)
 
     # with jax.disable_jit(): # DEBUG
     training_dict = training.train()
+
+
