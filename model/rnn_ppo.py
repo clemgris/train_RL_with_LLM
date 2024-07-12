@@ -3,6 +3,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
+import os
+import pickle
 
 import sys
 sys.path.append('.')
@@ -328,4 +330,25 @@ class make_train:
 
             print(train_message)
 
-        return {"runner_state": runner_state, "metric": concatenate_dicts(metrics)}
+            if (update % self.config['freq_save'] == 0) or (update == self.config["num_updates"] - 1):
+                past_log_metric = os.path.join(self.config['log_folder'], f'training_metrics_{update - self.config["freq_save"]}.pkl')
+                past_log_params = os.path.join(self.config['log_folder'], f'params_{update - self.config["freq_save"]}.pkl')
+
+                if os.path.exists(past_log_metric):
+                    os.remove(past_log_metric)
+
+                if os.path.exists(past_log_params):
+                    os.remove(past_log_params)
+
+                # Checkpoint
+                with open(os.path.join(self.config['log_folder'], f'training_metrics_{update}.pkl'), "wb") as pkl_file:
+                    pickle.dump(concatenate_dicts(metrics), pkl_file)
+
+                # Save model weights
+                with open(os.path.join(self.config['log_folder'], f'params_{update}.pkl'), 'wb') as f:
+                    pickle.dump(runner_state[0].params, f)
+
+         with open(os.path.join(self.config['log_folder'], 'args.json'), 'w') as json_file:
+            json.dump(training_dict['config'], json_file, indent=4)
+
+        return {"runner_state": runner_state, "metric": concatenate_dicts(metrics), "config": self.config}
