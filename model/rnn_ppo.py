@@ -1,6 +1,7 @@
 from flax.training.train_state import TrainState
 import jax
 import jax.numpy as jnp
+import json
 import numpy as np
 import optax
 import os
@@ -348,7 +349,7 @@ class make_train:
                 with open(os.path.join(self.config['log_folder'], f'params_{update}.pkl'), 'wb') as f:
                     pickle.dump(runner_state[0].params, f)
 
-         with open(os.path.join(self.config['log_folder'], 'args.json'), 'w') as json_file:
-            json.dump(training_dict['config'], json_file, indent=4)
+            with open(os.path.join(self.config['log_folder'], 'args.json'), 'w') as json_file:
+                json.dump(self.config, json_file, indent=4)
 
         return {"runner_state": runner_state, "metric": concatenate_dicts(metrics), "config": self.config}
