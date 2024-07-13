@@ -352,4 +352,7 @@ class make_train:
             with open(os.path.join(self.config['log_folder'], 'args.json'), 'w') as json_file:
                 json.dump(self.config, json_file, indent=4)
 
+            # Stop environment
+            self.env._env.stop()
+            
         return {"runner_state": runner_state, "metric": concatenate_dicts(metrics), "config": self.config}

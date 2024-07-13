@@ -1,8 +1,9 @@
 import gymnasium as gym
-import jax.numpy as jnp
+import math
 import numpy as np
 from copy import deepcopy
 from multiprocessing import Process, Pipe
+from typing import List
 
 import logging
 
@@ -45,49 +46,14 @@ def multi_worker(conn, envs):
         else:
             raise NotImplementedError
 
-
-def multi_worker_cont(conn, envs):
-    """Target for a subprocess that handles a set of envs"""
-    while True:
-        cmd, data = conn.recv()
-        # step(actions, stop_mask)
-        if cmd == "step":
-            ret = []
-            for env, a, stopped in zip(envs, data[0], data[1]):
-                if not stopped:
-                    obs, reward, done, info = env.step(action=a)
-                    if done:
-                        obs, info = env.reset()
-                    ret.append((obs, reward, done, info))
-                else:
-                    ret.append((None, 0, False, None))
-            conn.send(ret)
-        # reset()
-        elif cmd == "reset":
-            ret = []
-            for env in envs:
-                ret.append(env.reset())
-            conn.send(ret)
-        # render_one()
-        elif cmd == "render_one":
-            mode = data
-            ret = envs[0].render(mode)
-            conn.send(ret)
-            # __str__()
-        elif cmd == "__str__":
-            ret = str(envs[0])
-            conn.send(ret)
-        else:
-            raise NotImplementedError
-
-
 class ParallelEnv(gym.Env):
     """Parallel environment that holds a list of environments and can
        evaluate a low-level policy.
     """
 
     def __init__(self,
-                 envs,  # List of environments
+                 envs: List[gym.Env],  # List of environments
+                 num_cores: int = 8,
                  ):
         assert len(envs) >= 1, "No environment provided"
         self.envs = envs
@@ -97,13 +63,9 @@ class ParallelEnv(gym.Env):
         self.env_name = self.envs[0].unwrapped.spec.id
         self.action_space = self.envs[0].action_space
         self.observation_space = self.envs[0].observation_space
+        self.num_cores = num_cores
 
-        if "BabyAI" in self.env_name:
-            self.envs_per_proc = 64
-        elif "BabyPANDA" in self.env_name:
-            self.envs_per_proc = 1
-        else:
-            self.envs_per_proc = 64
+        self.envs_per_proc = math.ceil(self.num_envs / self.num_cores)
 
         # Setup arrays to hold current observation and timestep
         # for each environment
@@ -122,7 +84,7 @@ class ParallelEnv(gym.Env):
         self.locals[0].send(("__str__", None))
         return f"<ParallelShapedEnv<{self.locals[0].recv()}>>"
 
-    def __del__(self):
+    def stop(self):
         for p in self.processes:
             p.terminate()
 
@@ -131,10 +93,7 @@ class ParallelEnv(gym.Env):
 
     def render(self, mode="rgb_array", highlight=False):
         """Render a single environment"""
-        if "BabyPANDA" in self.spec_id:
-            self.locals[0].send(("render_one", mode))
-        else:
-            self.locals[0].send(("render_one", (mode, highlight)))
+        self.locals[0].send(("render_one", (mode, highlight)))
         return self.locals[0].recv()
 
     def start_processes(self):
@@ -143,12 +102,8 @@ class ParallelEnv(gym.Env):
         for i in range(0, self.num_envs, self.envs_per_proc):
             local, remote = Pipe()
             self.locals.append(local)
-            if "BabyPANDA" in self.spec_id:
-                p = Process(target=multi_worker_cont,
-                            args=(remote, self.envs[i:i + self.envs_per_proc]))
-            else:
-                p = Process(target=multi_worker,
-                            args=(remote, self.envs[i:i + self.envs_per_proc]))
+            p = Process(target=multi_worker,
+                        args=(remote, self.envs[i:i + self.envs_per_proc]))
             p.daemon = True
             p.start()
             remote.close()
