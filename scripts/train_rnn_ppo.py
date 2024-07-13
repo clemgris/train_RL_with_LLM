@@ -2,11 +2,15 @@ from datetime import datetime
 import jax
 import os
 
+import sys
+
+sys.path.append(".")
+
+from tRLwLLM.model import make_train
+
 # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 print(jax.devices())
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-
-from rnn_ppo import make_train
 
 if __name__ == "__main__":
     config = {
@@ -14,14 +18,12 @@ if __name__ == "__main__":
         "aneal_learning_rate": True,
         "clip_eps": 0.2,
         "ent_coef": 0.01,
-        "env_name": 'MiniGrid-Empty-8x8-v0',
-        "extractor": 'ExtractObs',
-        "feature_extractor": 'KeyExtractor',
+        "env_name": "MiniGrid-Empty-8x8-v0",
         "feature_extractor_kwargs": {
-            'final_hidden_layers': 64,
-            'hidden_layers': {'im_dir': 64},
-            'keys': ['im_dir'],
-            'kwargs': {}
+            "final_hidden_layers": 64,
+            "hidden_layers": {"im_dir": 64},
+            "keys": ["im_dir"],
+            "kwargs": {},
         },
         "freq_save": 1,
         "gae_lambda": 0.95,
@@ -30,24 +32,22 @@ if __name__ == "__main__":
         "learning_rate": 2.5e-4,
         "max_grad_norm": 0.5,
         "num_envs": 128,
-        "num_minibatchs": 8, # Must divide num_envs
+        "num_minibatchs": 8,  # Must divide num_envs
         "num_steps": 128,
         "total_time_steps": 5e8,
         "update_epochs": 1,
-        "vf_coef": 0.5
+        "vf_coef": 0.5,
     }
 
     current_time = datetime.now()
     date_string = current_time.strftime("%Y%m%d_%H%M%S")
 
     log_folder = f"logs_rl/{date_string}"
-    os.makedirs(log_folder, exist_ok='True')
+    os.makedirs(log_folder, exist_ok="True")
 
-    config['log_folder'] = log_folder
+    config["log_folder"] = log_folder
 
     training = make_train(config)
 
     # with jax.disable_jit(): # DEBUG
     training_dict = training.train()
-
-

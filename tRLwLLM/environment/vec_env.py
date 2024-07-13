@@ -1,11 +1,11 @@
-import gymnasium as gym
+import logging
 import math
-import numpy as np
 from copy import deepcopy
-from multiprocessing import Process, Pipe
+from multiprocessing import Pipe, Process
 from typing import List
 
-import logging
+import gymnasium as gym
+import numpy as np
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
@@ -46,15 +46,17 @@ def multi_worker(conn, envs):
         else:
             raise NotImplementedError
 
+
 class ParallelEnv(gym.Env):
     """Parallel environment that holds a list of environments and can
-       evaluate a low-level policy.
+    evaluate a low-level policy.
     """
 
-    def __init__(self,
-                 envs: List[gym.Env],  # List of environments
-                 num_cores: int = 8,
-                 ):
+    def __init__(
+        self,
+        envs: List[gym.Env],  # List of environments
+        num_cores: int = 8,
+    ):
         assert len(envs) >= 1, "No environment provided"
         self.envs = envs
         self.num_envs = len(self.envs)
@@ -102,8 +104,10 @@ class ParallelEnv(gym.Env):
         for i in range(0, self.num_envs, self.envs_per_proc):
             local, remote = Pipe()
             self.locals.append(local)
-            p = Process(target=multi_worker,
-                        args=(remote, self.envs[i:i + self.envs_per_proc]))
+            p = Process(
+                target=multi_worker,
+                args=(remote, self.envs[i : i + self.envs_per_proc]),
+            )
             p.daemon = True
             p.start()
             remote.close()
@@ -137,30 +141,35 @@ class ParallelEnv(gym.Env):
 
     def request_step(self, actions, stop_mask):
         """Request processes to step corresponding to (primitive) actions
-           unless stop mask indicates otherwise"""
+        unless stop mask indicates otherwise"""
         for i in range(0, self.num_envs, self.envs_per_proc):
             self.locals[i // self.envs_per_proc].send(
-                ("step", [actions[i:i + self.envs_per_proc],
-                          stop_mask[i:i + self.envs_per_proc]])
+                (
+                    "step",
+                    [
+                        actions[i : i + self.envs_per_proc],
+                        stop_mask[i : i + self.envs_per_proc],
+                    ],
+                )
             )
         results = []
         for i in range(0, self.num_envs, self.envs_per_proc):
             res = self.locals[i // self.envs_per_proc].recv()
             for j in range(len(res)):
                 results.append(res[j])
-                if results[-1][0] != None:
+                if results[-1][0] is not None:
                     self.obss[i + j] = results[-1][0]
         return zip(*results)
 
     def step(self, actions):
         """Complete a step and evaluate low-level policy / termination
-           classifier as needed depending on reward shaping scheme.
-           
-           Returns:  obs: list of environment observations,
-                     reward: np.array of extrinsic rewards,
-                     done: np.array of booleans,
-                     info: depends on self.reward_shaping. Output can be used
-                           to shape the reward.
+        classifier as needed depending on reward shaping scheme.
+
+        Returns:  obs: list of environment observations,
+                  reward: np.array of extrinsic rewards,
+                  done: np.array of booleans,
+                  info: depends on self.reward_shaping. Output can be used
+                        to shape the reward.
         """
         # Make sure input is numpy array:
         actions = np.array(actions)

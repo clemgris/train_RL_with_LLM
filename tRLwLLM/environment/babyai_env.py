@@ -1,8 +1,9 @@
 import gymnasium as gym
+from tRLwLLM.utils import concatenate_dicts
 
 from .base_env import BaseEnv
 from .vec_env import ParallelEnv
-from utils.utils import concatenate_dicts
+
 
 class BabyAI(BaseEnv):
     def __init__(self, config):
@@ -11,7 +12,7 @@ class BabyAI(BaseEnv):
         self.config = config
 
         for i in range(self.config["num_envs"]):
-            env = gym.make(self.config["env_name"], render_mode='rgb_array')
+            env = gym.make(self.config["env_name"], render_mode="rgb_array")
             env.reset(seed=100 * self.config["key"] + i)
             envs.append(env)
 
@@ -29,7 +30,4 @@ class BabyAI(BaseEnv):
 
     def step(self, actions):
         obs, rews, dones, infos = self._env.step(actions)
-        return self.__generate_obs(obs), \
-                rews, \
-                dones, \
-                self.__prepare_infos(infos)
+        return self.__generate_obs(obs), rews, dones, self.__prepare_infos(infos)

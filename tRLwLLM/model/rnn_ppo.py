@@ -1,20 +1,19 @@
-from flax.training.train_state import TrainState
-import jax
-import jax.numpy as jnp
 import json
-import numpy as np
-import optax
 import os
 import pickle
 
-import sys
-sys.path.append('.')
+import jax
+import jax.numpy as jnp
+import numpy as np
+import optax
+from flax.training.train_state import TrainState
+from tRLwLLM.environment import BabyAI
+from tRLwLLM.utils import Transition, concatenate_dicts, concatenate_transitions
 
-from environment.babyai_env import BabyAI
-from model.rnn_policy import ActorCriticRNN, ScannedRNN
-from model.obs_preprocessing import ExtractObs
-from model.feature_extractor import KeyExtractor
-from utils.utils import Transition, concatenate_transitions, concatenate_dicts
+from .feature_extractor import KeyExtractor
+from .obs_preprocessing import ExtractObs
+from .rnn_policy import ActorCriticRNN, ScannedRNN
+
 
 def extand(x):
     if isinstance(x, jnp.ndarray):
@@ -22,41 +21,36 @@ def extand(x):
     else:
         return
 
-extractors = {
-    'ExtractObs': ExtractObs
-}
-
-feature_extractors = {
-    'KeyExtractor': KeyExtractor
-}
 
 class make_train:
-
     def __init__(self, config):
-
         self.config = config
 
         # DEVICE
         self.devices = jax.devices()
-        print(f'Available devices: {self.devices}')
+        print(f"Available devices: {self.devices}")
 
         # RANDOM SEED
-        self.key = jax.random.PRNGKey(self.config['key'])
+        self.key = jax.random.PRNGKey(self.config["key"])
 
         # NUMBER OF GRADIENT UPDATES
         self.config["num_updates"] = int(
-            self.config["total_time_steps"] // self.config["num_steps"] // self.config["num_envs"]
+            self.config["total_time_steps"]
+            // self.config["num_steps"]
+            // self.config["num_envs"]
         )
         self.config["MINIBATCH_SIZE"] = (
-            self.config["num_envs"] * self.config["num_steps"] // self.config["num_minibatchs"]
+            self.config["num_envs"]
+            * self.config["num_steps"]
+            // self.config["num_minibatchs"]
         )
 
         # ENVIRONMENT
         self.env = BabyAI(self.config)
 
-        H, W, _ = self.env._env.observation_space['image'].shape
-        self.config['height'] = H
-        self.config['width'] = W
+        H, W, _ = self.env._env.observation_space["image"].shape
+        self.config["height"] = H
+        self.config["width"] = W
 
     # LEARNING RATE SCHEDULER
     def linear_schedule(self, count):
@@ -67,12 +61,13 @@ class make_train:
         )
         return self.config["learning_rate"] * frac
 
-    def train(self, ):
-
+    def train(
+        self,
+    ):
         # INIT NETWORK
-        self.extractor = extractors[self.config['extractor']](self.config)
-        self.feature_extractor = feature_extractors[self.config['feature_extractor']]
-        self.feature_extractor_kwargs =self.config['feature_extractor_kwargs']
+        self.extractor = ExtractObs(self.config)
+        self.feature_extractor = KeyExtractor
+        self.feature_extractor_kwargs = self.config["feature_extractor_kwargs"]
 
         network = ActorCriticRNN(
             action_dim=1,
@@ -80,18 +75,23 @@ class make_train:
             feature_extractor_class=self.feature_extractor,
             feature_extractor_kwargs=self.feature_extractor_kwargs,
             num_action=self.env._env.action_space.n,
-            num_components=None)
+            num_components=None,
+        )
 
-        feature_extractor_shape = self.config['feature_extractor_kwargs']['final_hidden_layers']
-        init_x = self.extractor.init_x(self.config['num_envs'])
-        init_rnn_state_train = ScannedRNN.initialize_carry((self.config['num_envs'], feature_extractor_shape))
+        feature_extractor_shape = self.config["feature_extractor_kwargs"][
+            "final_hidden_layers"
+        ]
+        init_x = self.extractor.init_x(self.config["num_envs"])
+        init_rnn_state_train = ScannedRNN.initialize_carry(
+            (self.config["num_envs"], feature_extractor_shape)
+        )
 
         network_params = network.init(self.key, init_rnn_state_train, init_x)
 
         # Count number of parameters
         flat_params, _ = jax.tree_util.tree_flatten(network_params)
         network_size = sum(p.size for p in flat_params)
-        print(f'Number of parameters: {network_size}')
+        print(f"Number of parameters: {network_size}")
 
         if self.config["aneal_learning_rate"]:
             tx = optax.chain(
@@ -135,27 +135,40 @@ class make_train:
             obsv = self.extractor(obs)
 
             transition = Transition(
-                last_done,
-                action,
-                value,
-                reward,
-                log_prob,
-                last_obs,
-                info
+                last_done, action, value, reward, log_prob, last_obs, info
             )
             runner_state = (train_state, obsv, done, rnn_state, rng)
             return runner_state, transition
 
         # CALCULATE ADVANTAGE
         def _calculate_gae(traj_batch, last_val, last_done):
-                def _get_advantages(carry, transition):
-                    gae, next_value, next_done = carry
-                    done, value, reward = transition.done, transition.value, transition.reward
-                    delta = reward + self.config["gamma"] * next_value * (1 - next_done) - value
-                    gae = delta + self.config["gamma"] * self.config["gae_lambda"] * (1 - next_done) * gae
-                    return (gae, value, done), gae
-                _, advantages = jax.lax.scan(_get_advantages, (jnp.zeros_like(last_val), last_val, last_done), traj_batch, reverse=True, unroll=16)
-                return advantages, advantages + traj_batch.value
+            def _get_advantages(carry, transition):
+                gae, next_value, next_done = carry
+                done, value, reward = (
+                    transition.done,
+                    transition.value,
+                    transition.reward,
+                )
+                delta = (
+                    reward + self.config["gamma"] * next_value * (1 - next_done) - value
+                )
+                gae = (
+                    delta
+                    + self.config["gamma"]
+                    * self.config["gae_lambda"]
+                    * (1 - next_done)
+                    * gae
+                )
+                return (gae, value, done), gae
+
+            _, advantages = jax.lax.scan(
+                _get_advantages,
+                (jnp.zeros_like(last_val), last_val, last_done),
+                traj_batch,
+                reverse=True,
+                unroll=16,
+            )
+            return advantages, advantages + traj_batch.value
 
         # PPO LOSS
         def _loss_fn(params, rnn_state, traj_batch, gae, targets):
@@ -166,21 +179,21 @@ class make_train:
             log_prob = pi.log_prob(traj_batch.action).squeeze(-1)
 
             # CALCULATE VALUE LOSS
-            value_pred_clipped = traj_batch.value + (
-                value - traj_batch.value
-            ).clip(-self.config["clip_eps"], self.config["clip_eps"])
+            value_pred_clipped = traj_batch.value + (value - traj_batch.value).clip(
+                -self.config["clip_eps"], self.config["clip_eps"]
+            )
             value_losses = jnp.square(value - targets)
             value_losses_clipped = jnp.square(value_pred_clipped - targets)
-            value_loss = (
-                0.5 * jnp.maximum(value_losses, value_losses_clipped).mean()
-            )
+            value_loss = 0.5 * jnp.maximum(value_losses, value_losses_clipped).mean()
 
             # CALCULATE EXPLAINED VARIANCE
             residuals = traj_batch.reward - value
             var_residuals = jnp.var(residuals, axis=0)
             var_returns = jnp.var(traj_batch.reward, axis=0)
 
-            explained_variance = ((1.0 - var_residuals / var_returns) * (var_returns > 1e-8)).sum() / (var_returns > 1e-8).sum()
+            explained_variance = (
+                (1.0 - var_residuals / var_returns) * (var_returns > 1e-8)
+            ).sum() / (var_returns > 1e-8).sum()
 
             # CALCULATE ACTOR LOSS
             ratio = jnp.exp(log_prob - traj_batch.log_prob)
@@ -205,7 +218,13 @@ class make_train:
                 + self.config["vf_coef"] * value_loss
                 - self.config["ent_coef"] * entropy
             )
-            return total_loss, (value_loss, loss_actor, entropy, cum_reward, explained_variance)
+            return total_loss, (
+                value_loss,
+                loss_actor,
+                entropy,
+                cum_reward,
+                explained_variance,
+            )
 
         # UPDATE NETWORK ON MINIBATCH
         def _update_minbatch(train_state, batch_info):
@@ -238,15 +257,17 @@ class make_train:
             )
 
             minibatches = jax.tree_util.tree_map(
-                lambda x: jnp.swapaxes(jnp.reshape(x,
-                                                   [x.shape[0], self.config["num_minibatchs"], -1]
-                                                   + list(x.shape[2:]),),
-                                       1,
-                                       0,),
+                lambda x: jnp.swapaxes(
+                    jnp.reshape(
+                        x,
+                        [x.shape[0], self.config["num_minibatchs"], -1]
+                        + list(x.shape[2:]),
+                    ),
+                    1,
+                    0,
+                ),
                 shuffled_batch,
             )
-
-
 
             train_state, (total_loss, aux) = jax.lax.scan(
                 _update_minbatch, train_state, minibatches
@@ -264,7 +285,6 @@ class make_train:
 
         # TRAIN LOOP
         def _update_step(runner_state, unused):
-
             initial_rnn_state = runner_state[-2]
 
             # COLLECT TRAJECTORIES (CPU)
@@ -293,16 +313,19 @@ class make_train:
             )
 
             # UPDATE NETWORK ON COLLECTED TRAJECTORIES (GPU)
-            update_state, (total_loss, aux) = jax.lax.scan( _update_single, update_state, None, self.config["update_epochs"])
+            update_state, (total_loss, aux) = jax.lax.scan(
+                _update_single, update_state, None, self.config["update_epochs"]
+            )
 
             value_loss, loss_actor, entropy, cum_reward, explained_variance = aux
-            metric = metric = {'loss': [total_loss],
-                               'value_loss': [value_loss],
-                               'actor_loss': [loss_actor],
-                               'cum_reward' : [cum_reward],
-                               'entropy': [entropy],
-                               'explained_variance': [explained_variance]
-                            }
+            metric = metric = {
+                "loss": [total_loss],
+                "value_loss": [value_loss],
+                "actor_loss": [loss_actor],
+                "cum_reward": [cum_reward],
+                "entropy": [entropy],
+                "explained_variance": [explained_variance],
+            }
 
             train_state = update_state[0]
             rng = update_state[-1]
@@ -319,21 +342,29 @@ class make_train:
             _rng,
         )
 
-        metrics  = []
+        metrics = []
         for update in range(self.config["num_updates"]):
             runner_state, train_metric = _update_step(runner_state, None)
 
-            metrics.append(jax.tree_map(lambda x : jnp.mean(x), train_metric))
+            metrics.append(jax.tree_map(lambda x: jnp.mean(x), train_metric))
 
-            train_message = f'Update | {update} | Train | '
+            train_message = f"Update | {update} | Train | "
             for key, value in train_metric.items():
                 train_message += f" {key} | {jnp.array(value).mean():.6f} | "
 
             print(train_message)
 
-            if (update % self.config['freq_save'] == 0) or (update == self.config["num_updates"] - 1):
-                past_log_metric = os.path.join(self.config['log_folder'], f'training_metrics_{update - self.config["freq_save"]}.pkl')
-                past_log_params = os.path.join(self.config['log_folder'], f'params_{update - self.config["freq_save"]}.pkl')
+            if (update % self.config["freq_save"] == 0) or (
+                update == self.config["num_updates"] - 1
+            ):
+                past_log_metric = os.path.join(
+                    self.config["log_folder"],
+                    f'training_metrics_{update - self.config["freq_save"]}.pkl',
+                )
+                past_log_params = os.path.join(
+                    self.config["log_folder"],
+                    f'params_{update - self.config["freq_save"]}.pkl',
+                )
 
                 if os.path.exists(past_log_metric):
                     os.remove(past_log_metric)
@@ -342,17 +373,31 @@ class make_train:
                     os.remove(past_log_params)
 
                 # Checkpoint
-                with open(os.path.join(self.config['log_folder'], f'training_metrics_{update}.pkl'), "wb") as pkl_file:
+                with open(
+                    os.path.join(
+                        self.config["log_folder"], f"training_metrics_{update}.pkl"
+                    ),
+                    "wb",
+                ) as pkl_file:
                     pickle.dump(concatenate_dicts(metrics), pkl_file)
 
                 # Save model weights
-                with open(os.path.join(self.config['log_folder'], f'params_{update}.pkl'), 'wb') as f:
+                with open(
+                    os.path.join(self.config["log_folder"], f"params_{update}.pkl"),
+                    "wb",
+                ) as f:
                     pickle.dump(runner_state[0].params, f)
 
-            with open(os.path.join(self.config['log_folder'], 'args.json'), 'w') as json_file:
+            with open(
+                os.path.join(self.config["log_folder"], "args.json"), "w"
+            ) as json_file:
                 json.dump(self.config, json_file, indent=4)
 
-            # Stop environment
-            self.env._env.stop()
-            
-        return {"runner_state": runner_state, "metric": concatenate_dicts(metrics), "config": self.config}
+        # Stop environment
+        self.env._env.stop()
+
+        return {
+            "runner_state": runner_state,
+            "metric": concatenate_dicts(metrics),
+            "config": self.config,
+        }
