@@ -1,6 +1,0 @@
-#jax[cuda12_pip]
-#tensorflow[and-cuda]
-flax
-distrax
-minigrid
-nvidia-cuda-nvcc-cu12==12.2.91

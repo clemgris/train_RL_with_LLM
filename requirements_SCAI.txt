@@ -1,5 +1,0 @@
-#jax[cuda12_pip]
-nvidia-cuda-nvcc-cu12==12.0.76
-flax==0.8.5
-distrax==0.1.5
-minigrid==2.3.1
