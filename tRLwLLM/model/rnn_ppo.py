@@ -16,6 +16,7 @@ from .rnn_policy import ActorCriticRNN, ScannedRNN
 
 
 def extand(x):
+
     if isinstance(x, jnp.ndarray):
         return x[jnp.newaxis, ...]
     else:
@@ -211,7 +212,16 @@ class make_train:
             loss_actor = loss_actor.mean()
             entropy = pi.entropy().mean()
 
-            cum_reward = traj_batch.reward.mean(axis=1).sum()
+            breakpoint()
+            flipped_done = jnp.flip(traj_batch.done, axis=0)
+            cum_done = jnp.flip(jnp.cumsum(flipped_done, axis=0), axis=0)
+            num_done = jnp.sum(traj_batch.done, axis=0)
+            cum_reward = traj_batch.reward * cum_done
+
+            # Mean cumulative reward over done episodes
+            mean_cum_reward = jnp.sum(cum_reward.sum(axis=0) / num_done) / jnp.sum(
+                num_done > 0
+            )
 
             total_loss = (
                 loss_actor
@@ -222,7 +232,7 @@ class make_train:
                 value_loss,
                 loss_actor,
                 entropy,
-                cum_reward,
+                mean_cum_reward,
                 explained_variance,
             )
 
