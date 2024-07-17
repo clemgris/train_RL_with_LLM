@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from typing import Any, Dict
 
 import jax.numpy as jnp
+import torch
+from transformers import BertTokenizer, BertModel
 
 
 def im_dir_extract(obs):
@@ -15,12 +17,35 @@ def im_dir_extract(obs):
     return im_dir
 
 
-EXTRACTOR_DICT = {"im_dir": im_dir_extract}
+class SetenceEncoder:
+    def __call__(self, x):
+        with torch.no_grad():
+            tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
+            model = BertModel.from_pretrained("bert-base-uncased").cuda()
+
+            tokenized = tokenizer(
+                x, padding=True, truncation=True, return_tensors="pt"
+            ).to("cuda")
+            outputs = model(**tokenized)
+            mission_embedding = outputs.last_hidden_state[
+                :, 0, ...
+            ]  # Get the embedding of the entire sentence
+        return mission_embedding
+
+
+def mission_extract(obs):
+    mission = list(obs["image"])  # List of len B
+    embedded_mission = SetenceEncoder(mission)  # (B, 768)
+    return embedded_mission
+
+
+EXTRACTOR_DICT = {"im_dir": im_dir_extract, "mission": mission_extract}
 
 
 def init_dict(config, batch_size):
     return {
         "im_dir": jnp.zeros((1, batch_size, config["height"], config["width"], 4)),
+        "mission": jnp.zeros((1, batch_size, 768)),
     }
 
 

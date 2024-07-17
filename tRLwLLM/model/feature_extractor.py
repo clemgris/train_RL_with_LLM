@@ -1,5 +1,6 @@
 from typing import Dict, List
 
+from dataclasses import dataclass
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
@@ -28,7 +29,15 @@ class ConvNet(nn.Module):
         return x
 
 
-FEATURES_EXTRACTOR_DICT = {"im_dir": ConvNet}
+@dataclass
+class Identity:
+    final_hidden_layers: int = None
+
+    def __call__(self, x):
+        return x
+
+
+FEATURES_EXTRACTOR_DICT = {"im_dir": ConvNet, "mission": Identity}
 
 
 class KeyExtractor(nn.Module):
@@ -54,12 +63,9 @@ class KeyExtractor(nn.Module):
                     concat_inputs
                 )
             else:
-                if self.hidden_layers is not None:
-                    x = FEATURES_EXTRACTOR_DICT[key](self.hidden_layers.get(key, None))(
-                        obs[key]
-                    )
-                else:
-                    x = FEATURES_EXTRACTOR_DICT[key]()(obs[key])
+                x = FEATURES_EXTRACTOR_DICT[key](self.hidden_layers.get(key, None))(
+                    obs[key]
+                )
             x = nn.LayerNorm()(x)  # Layer norm
             outputs.append(x)
 
