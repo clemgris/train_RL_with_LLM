@@ -3,6 +3,7 @@ from typing import Any, Dict
 
 import jax.numpy as jnp
 import torch
+from torch2jax import t2j
 from transformers import BertTokenizer, BertModel
 
 
@@ -17,26 +18,22 @@ def im_dir_extract(obs):
     return im_dir
 
 
-class SetenceEncoder:
-    def __call__(self, x):
-        with torch.no_grad():
-            tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
-            model = BertModel.from_pretrained("bert-base-uncased").cuda()
-
-            tokenized = tokenizer(
-                x, padding=True, truncation=True, return_tensors="pt"
-            ).to("cuda")
-            outputs = model(**tokenized)
-            mission_embedding = outputs.last_hidden_state[
-                :, 0, ...
-            ]  # Get the embedding of the entire sentence
-        return mission_embedding
-
-
 def mission_extract(obs):
-    mission = list(obs["image"])  # List of len B
-    embedded_mission = SetenceEncoder(mission)  # (B, 768)
-    return embedded_mission
+    mission = list(obs["mission"])  # List of len B
+
+    # ert pre-trained semantic encoder
+    with torch.no_grad():
+        tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
+        model = BertModel.from_pretrained("bert-base-uncased").cuda()
+
+        tokenized = tokenizer(
+            mission, padding=True, truncation=True, return_tensors="pt"
+        ).to("cuda")
+        outputs = model(**tokenized)
+        # Get the embedding of the entire sentence
+        mission_embedding = outputs.last_hidden_state[:, 0, ...]  # (B, 768)
+        mission_embedding = t2j(mission_embedding)
+    return mission_embedding
 
 
 EXTRACTOR_DICT = {"im_dir": im_dir_extract, "mission": mission_extract}
