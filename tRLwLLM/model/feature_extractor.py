@@ -21,10 +21,9 @@ class ConvNet(nn.Module):
         x = nn.max_pool(x, window_shape=(2, 2), strides=(2, 2))
 
         T, B, _, _, _ = x.shape
-        x = x.reshape((T * B, -1))  # Flatten
+        x = x.reshape((T, B, -1))  # Flatten
         x = nn.Dense(features=self.final_hidden_layers)(x)
         x = jax.nn.relu(x)
-        x = x.reshape((T, B, -1))
 
         return x
 
