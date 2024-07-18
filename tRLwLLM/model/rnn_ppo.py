@@ -16,7 +16,6 @@ from .rnn_policy import ActorCriticRNN, ScannedRNN
 
 
 def extand(x):
-
     if isinstance(x, jnp.ndarray):
         return x[jnp.newaxis, ...]
     else:
@@ -116,10 +115,10 @@ class make_train:
 
         # COLLECT TRAJECTORIES
         def _env_step(runner_state):
-            train_state, last_obs, last_done, rnn_state, rng = runner_state
+            train_state, last_obsv, last_done, rnn_state, rng = runner_state
 
             # SELECT ACTION
-            ac_in = (jax.tree_map(extand, last_obs), last_done[np.newaxis, :])
+            ac_in = (jax.tree_map(extand, last_obsv), last_done[np.newaxis, :])
             rnn_state, pi, value = network.apply(train_state.params, rnn_state, ac_in)
 
             rng, rng_sample_action = jax.random.split(rng)
@@ -136,7 +135,7 @@ class make_train:
             obsv = self.extractor(obs)
 
             transition = Transition(
-                last_done, action, value, reward, log_prob, last_obs, info
+                last_done, action, value, reward, log_prob, last_obsv, info
             )
             runner_state = (train_state, obsv, done, rnn_state, rng)
             return runner_state, transition
@@ -305,8 +304,8 @@ class make_train:
             traj_batch = concatenate_transitions(traj_batch_list)
 
             # CALCULATE ADVANTAGE
-            train_state, last_obs, last_done, rnn_state, rng = runner_state
-            ac_in = (jax.tree_map(extand, last_obs), last_done[jnp.newaxis, :])
+            train_state, last_obsv, last_done, rnn_state, rng = runner_state
+            ac_in = (jax.tree_map(extand, last_obsv), last_done[jnp.newaxis, :])
             _, _, last_val = network.apply(train_state.params, rnn_state, ac_in)
             last_val = last_val.squeeze(0)
             advantages, targets = _calculate_gae(traj_batch, last_val, last_done)
@@ -340,7 +339,7 @@ class make_train:
             train_state = update_state[0]
             rng = update_state[-1]
 
-            runner_state = (train_state, last_obs, last_done, rnn_state, rng)
+            runner_state = (train_state, last_obsv, last_done, rnn_state, rng)
             return runner_state, metric
 
         _, _rng = jax.random.split(self.key)
