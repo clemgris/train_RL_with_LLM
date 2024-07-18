@@ -191,9 +191,9 @@ class make_train:
             var_residuals = jnp.var(residuals, axis=0)
             var_returns = jnp.var(traj_batch.reward, axis=0)
 
-            explained_variance = (
-                (1.0 - var_residuals / var_returns) * (var_returns > 1e-8)
-            ).sum() / (var_returns > 1e-8).sum()
+            explained_variance = jnp.where(
+                var_returns > 0, 1.0 - var_residuals / var_returns, -jnp.inf
+            ).mean()
 
             # CALCULATE ACTOR LOSS
             ratio = jnp.exp(log_prob - traj_batch.log_prob)
@@ -211,15 +211,9 @@ class make_train:
             loss_actor = loss_actor.mean()
             entropy = pi.entropy().mean()
 
-            flipped_done = jnp.flip(traj_batch.done, axis=0)
-            cum_done = jnp.flip(jnp.cumsum(flipped_done, axis=0), axis=0)
-            num_done = jnp.sum(traj_batch.done, axis=0)
-            cum_reward = traj_batch.reward * cum_done
-
-            # Mean cumulative reward over done episodes
-            mean_cum_reward = jnp.sum(cum_reward.sum(axis=0) / num_done) / jnp.sum(
-                num_done > 0
-            )
+            reward_sum = traj_batch.reward.sum(axis=0)
+            done_sum = traj_batch.done.sum(axis=0)
+            mean_cum_reward = jnp.where(done_sum != 0, reward_sum / done_sum, 0).mean()
 
             total_loss = (
                 loss_actor
@@ -356,7 +350,7 @@ class make_train:
 
             metrics.append(jax.tree_map(lambda x: jnp.mean(x), train_metric))
 
-            train_message = f"Update | {update} | Train | "
+            train_message = f"Update | {update}/{self.config["num_updates"]} | Train | "
             for key, value in train_metric.items():
                 train_message += f" {key} | {jnp.array(value).mean():.6f} | "
 
