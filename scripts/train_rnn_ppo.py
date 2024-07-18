@@ -18,7 +18,7 @@ if __name__ == "__main__":
         "aneal_learning_rate": True,
         "clip_eps": 0.2,
         "ent_coef": 0.01,
-        "env_name": "MiniGrid-Empty-5x5-v0",  # "BabyAI-GoToLocalS8N7-v0",
+        "env_name": "BabyAI-GoToLocalS8N7-v0",
         "feature_extractor_kwargs": {
             "final_hidden_layers": 64,
             "hidden_layers": {"im_dir": 64, "mission": None},
@@ -49,5 +49,5 @@ if __name__ == "__main__":
 
     training = make_train(config)
 
-    with jax.disable_jit():  # DEBUG
-        training_dict = training.train()
+    # with jax.disable_jit():  # DEBUG
+    training_dict = training.train()
