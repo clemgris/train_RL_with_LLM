@@ -211,7 +211,6 @@ class make_train:
             loss_actor = loss_actor.mean()
             entropy = pi.entropy().mean()
 
-            breakpoint()
             flipped_done = jnp.flip(traj_batch.done, axis=0)
             cum_done = jnp.flip(jnp.cumsum(flipped_done, axis=0), axis=0)
             num_done = jnp.sum(traj_batch.done, axis=0)

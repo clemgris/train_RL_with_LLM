@@ -49,5 +49,5 @@ if __name__ == "__main__":
 
     training = make_train(config)
 
-    with jax.disable_jit():  # DEBUG
-        training_dict = training.train()
+    # with jax.disable_jit():  # DEBUG
+    training_dict = training.train()
