@@ -111,7 +111,7 @@ class make_train:
 
         # INIT ENV
         obs, _ = self.env.reset()
-        obsv = self.extractor(obs)
+        obsv = self.extractor(obs, None, jnp.ones((self.config["num_envs"]), dtype=bool))
 
         # COLLECT TRAJECTORIES
         def _env_step(runner_state):
@@ -132,7 +132,7 @@ class make_train:
 
             # STEP ENV
             obs, reward, done, info = self.env.step(action)
-            obsv = self.extractor(obs)
+            obsv = self.extractor(obs, last_obsv, done)
 
             transition = Transition(
                 last_done, action, value, reward, log_prob, last_obsv, info
@@ -212,8 +212,10 @@ class make_train:
             entropy = pi.entropy().mean()
 
             reward_sum = traj_batch.reward.sum(axis=0)
+            num_reward = (traj_batch.reward > 0).sum(axis=0)
             done_sum = traj_batch.done.sum(axis=0)
             mean_cum_reward = jnp.where(done_sum != 0, reward_sum / done_sum, 0).mean()
+            mean_success_rate = jnp.where(done_sum != 0, num_reward / done_sum, 0).mean()
 
             total_loss = (
                 loss_actor
@@ -225,6 +227,7 @@ class make_train:
                 loss_actor,
                 entropy,
                 mean_cum_reward,
+                mean_success_rate,
                 explained_variance,
             )
 
@@ -319,12 +322,13 @@ class make_train:
                 _update_single, update_state, None, self.config["update_epochs"]
             )
 
-            value_loss, loss_actor, entropy, cum_reward, explained_variance = aux
+            value_loss, loss_actor, entropy, cum_reward, success_rate, explained_variance = aux
             metric = metric = {
                 "loss": [total_loss],
                 "value_loss": [value_loss],
                 "actor_loss": [loss_actor],
                 "cum_reward": [cum_reward],
+                "success_rate": [success_rate],
                 "entropy": [entropy],
                 "explained_variance": [explained_variance],
             }
