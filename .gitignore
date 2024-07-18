@@ -8,7 +8,7 @@ logs_rl
 .vscode
 
 # Notebooks
-notebooks
+notebooks/draft.ipynb
 
 # Settings vscode
 .vscode
