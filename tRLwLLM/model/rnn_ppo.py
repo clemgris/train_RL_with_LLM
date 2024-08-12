@@ -7,6 +7,8 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 from flax.training.train_state import TrainState
+import time
+
 from tRLwLLM.environment import BabyAI
 from tRLwLLM.utils import Transition, concatenate_dicts, concatenate_transitions
 
@@ -350,6 +352,7 @@ class make_train:
 
         metrics = []
         for update in range(self.config["num_updates"]):
+            time_start = time.time()
             runner_state, train_metric = _update_step(runner_state, None)
 
             metrics.append(jax.tree_map(lambda x: jnp.mean(x), train_metric))
@@ -357,6 +360,8 @@ class make_train:
             train_message = f"Update | {update}/{self.config["num_updates"]} | Train | "
             for key, value in train_metric.items():
                 train_message += f" {key} | {jnp.array(value).mean():.6f} | "
+
+            train_message += f" Time | {(time.time() - time_start):0.4f} s"
 
             print(train_message)
 
