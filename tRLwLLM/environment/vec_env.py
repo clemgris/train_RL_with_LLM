@@ -10,29 +10,41 @@ import numpy as np
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
 
+from .babyai_bot import BabyAIBot
 
-def multi_worker(conn, envs):
+
+def multi_worker(conn, envs, experts):
     """Target for a subprocess that handles a set of envs"""
     while True:
         cmd, data = conn.recv()
         # step(actions, stop_mask)
         if cmd == "step":
             ret = []
-            for env, a, stopped in zip(envs, data[0], data[1]):
+            for env, expert, a, stopped in zip(envs, experts, data[0], data[1]):
                 if not stopped:
                     obs, reward, done, _, info = env.step(a)
                     done = done or (env.unwrapped.step_count >= env.unwrapped.max_steps)
                     if done:
                         obs, info = env.reset()
+                        expert.reset(env)
                     ret.append((obs, reward, done, info))
                 else:
                     ret.append((None, 0, False, None))
             conn.send(ret)
+        elif cmd == "expert_action":
+            ret = []
+            for expert in experts:
+                expert_action = expert.replan(
+                    None
+                )  # WARING: Assume previous action taken by expert
+                ret.append(expert_action)
+            conn.send(ret)
         # reset()
         elif cmd == "reset":
             ret = []
-            for env in envs:
+            for env, expert in zip(envs, experts):
                 obs, info = env.reset()
+                expert.reset(env)
                 ret.append((obs, info))
             conn.send(ret)
         # render_one()
@@ -55,17 +67,21 @@ class ParallelEnv(gym.Env):
     def __init__(
         self,
         envs: List[gym.Env],  # List of environments
+        experts: List[BabyAIBot],
         num_cores: int = 8,
     ):
         assert len(envs) >= 1, "No environment provided"
         self.envs = envs
+        self.experts = experts
         self.num_envs = len(self.envs)
+        assert self.num_envs == len(self.experts)
         self.spec = deepcopy(self.envs[0].unwrapped.spec)
         self.spec_id = f"ParallelShapedEnv<{self.spec.id}>"
         self.env_name = self.envs[0].unwrapped.spec.id
         self.action_space = self.envs[0].action_space
         self.observation_space = self.envs[0].observation_space
         self.num_cores = num_cores
+        self.max_steps = self.envs[0].unwrapped.max_steps
 
         self.envs_per_proc = math.ceil(self.num_envs / self.num_cores)
 
@@ -106,7 +122,11 @@ class ParallelEnv(gym.Env):
             self.locals.append(local)
             p = Process(
                 target=multi_worker,
-                args=(remote, self.envs[i : i + self.envs_per_proc]),
+                args=(
+                    remote,
+                    self.envs[i : i + self.envs_per_proc],
+                    self.experts[i : i + self.envs_per_proc],
+                ),
             )
             p.daemon = True
             p.start()
@@ -185,3 +205,18 @@ class ParallelEnv(gym.Env):
         self.ts[done_mask] *= 0
 
         return [obs for obs in self.obss], reward, done_mask, info
+
+    def request_expert_actions(self):
+        """Request processes to return expert action"""
+        logger.info("requesting resets")
+        for local in self.locals:
+            local.send(("expert_action", None))
+        expert_actions = []
+        for local in self.locals:
+            res = local.recv()
+            expert_actions.append(res)
+        return expert_actions
+
+    def get_expert_action(self):
+        actions = self.request_expert_actions()
+        return actions
