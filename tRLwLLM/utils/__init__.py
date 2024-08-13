@@ -1,1 +1,1 @@
-from .utils import Transition, concatenate_dicts, concatenate_transitions
+from .utils import TransitionRL, concatenate_dicts, concatenate_transitions
