@@ -3,6 +3,7 @@ __pycache__/
 
 # Training logs
 logs_rl
+animations
 
 # VSCODE settings
 .vscode
