@@ -72,7 +72,7 @@ def concatenate_transitions(
 
         res = TransitionRL(**dict_res)
 
-    if isinstance(transitions[0], TransitionRL):
+    elif isinstance(transitions[0], TransitionBC):
         dict_res = {
             "done": None,
             "expert_action": None,
