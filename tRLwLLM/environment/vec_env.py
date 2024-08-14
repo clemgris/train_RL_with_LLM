@@ -218,5 +218,5 @@ class ParallelEnv(gym.Env):
         return expert_actions
 
     def get_expert_action(self):
-        actions = self.request_expert_actions()
+        actions = np.concatenate(self.request_expert_actions())[..., None]
         return actions
