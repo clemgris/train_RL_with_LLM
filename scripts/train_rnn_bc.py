@@ -26,6 +26,7 @@ if __name__ == "__main__":
         "freq_save": 1,
         "key": 42,
         "learning_rate": 2.5e-4,
+        "max_grad_norm": 0.5,
         "num_envs": 32,
         "num_minibatchs": 4,  # Must divide num_envs
         "num_steps": 128,
