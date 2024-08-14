@@ -94,7 +94,6 @@ class make_train_bc:
         init_rnn_state_train = ScannedRNN.initialize_carry(
             (self.config["num_envs"], feature_extractor_shape)
         )
-
         init_rnn_state_eval = ScannedRNN.initialize_carry(
             (self.eval_config["num_envs"], feature_extractor_shape)
         )
@@ -122,26 +121,16 @@ class make_train_bc:
             tx=tx,
         )
 
-        # INIT ENV
-        obs, _ = self.env.reset()
-        obsv = self.extractor(
-            obs, None, jnp.ones((self.config["num_envs"]), dtype=bool)
-        )
-
         # COLLECT TRAJECTORIES FROM DEMONSTRATION (EXPERT POLICY)
         def _env_step(runner_state):
-            train_state, last_obsv, last_done, rnn_state_train, rnn_state_eval, rng = (
+            train_state, last_obsv, last_done, rng = (
                 runner_state
             )
 
+            # GET EXPERT ACTION
             expert_action = self.env.get_expert_action()
 
-            # STEP ENV
-            ac_in = (jax.tree_map(extand, last_obsv), last_done[np.newaxis, :])
-            rnn_state_train, _, _ = network.apply(
-                train_state.params, rnn_state_train, ac_in
-            )
-
+            # UPDATE ENV
             obs, _, done, info = self.env.step(expert_action)
             obsv = self.extractor(obs, last_obsv, done)
 
@@ -150,15 +139,13 @@ class make_train_bc:
                 train_state,
                 obsv,
                 done,
-                rnn_state_train,
-                rnn_state_eval,
                 rng,
             )
             return runner_state, transition
 
         # COLLECT TRAJECTORIES FROM IMITATOR
         def _env_step_eval(runner_state):
-            train_state, last_obsv, last_done, rnn_state_train, rnn_state_eval, rng = (
+            train_state, last_obsv, last_done, rnn_state_eval, rng = (
                 runner_state
             )
 
@@ -178,7 +165,7 @@ class make_train_bc:
             )
 
             # STEP ENV
-            obs, reward, done, info = self.env.step(action)
+            obs, reward, done, info = self.eval_env.step(action)
             obsv = self.extractor(obs, last_obsv, done)
 
             transition = TransitionRL(
@@ -188,17 +175,15 @@ class make_train_bc:
                 train_state,
                 obsv,
                 done,
-                rnn_state_train,
                 rnn_state_eval,
                 rng,
             )
             return runner_state, transition
 
         # BC LOSS
-        def _loss_fn(params, traj_batch):
-            init_rnn_state = ScannedRNN.initialize_carry((self.config["NUM_ENVS"], 128))
-            _, action_dist, _ = network.apply(
-                params, init_rnn_state, (traj_batch.obs, traj_batch.done)
+        def _loss_fn(params, init_rnn_state, traj_batch):
+            _, action_dist, value = network.apply(
+                params, init_rnn_state[0], (traj_batch.obs, traj_batch.done)
             )
             log_prob = action_dist.log_prob(traj_batch.expert_action)
 
@@ -258,22 +243,34 @@ class make_train_bc:
             return update_state, total_loss
 
         # TRAIN LOOP
-        def _update_step(runner_state, unused):
-            # INIT RNN STATE
-            initial_rnn_state_train = runner_state[-3]
-            init_rnn_state_train = initial_rnn_state_train[None, :]
+        def _update_step(cary, unused):
 
-            # COLLECT TRAJECTORIES (CPU)
+            train_state, rng = cary
+
+            # RESET ENV
+            obs, _ = self.env.reset()
+            obsv = self.extractor(
+                obs, None, jnp.ones((self.config["num_envs"]), dtype=bool)
+            )
+
+            rng, rng_train_rs = jax.random.split(rng)
+            runner_state = (
+                train_state,
+                obsv,
+                jnp.zeros((self.config["num_envs"]), dtype=bool),
+                rng_train_rs,
+            )
+
+            # COLLECT TRAJECTORIES FROM EXPERT (CPU)
             traj_batch_list = []
             for _ in range(self.config["num_steps"]):
                 runner_state, transition = _env_step(runner_state)
                 traj_batch_list.append(transition)
             traj_batch = concatenate_transitions(traj_batch_list)
-            train_state, last_obsv, last_done, rnn_state, rng = runner_state
 
             update_state = (
                 train_state,
-                init_rnn_state_train,
+                init_rnn_state_train[None, :],
                 traj_batch,
                 rng,
             )
@@ -283,13 +280,33 @@ class make_train_bc:
                 _update_single, update_state, None, self.config["update_epochs"]
             )
 
+            train_state = update_state[0]
+            cary = train_state, rng
+
             # EVALUATE
+
+            # RESET EVALUATION ENV
+            eval_obs, _ = self.eval_env.reset()
+            eval_obsv = self.extractor(
+                eval_obs, None, jnp.ones((self.eval_config["num_envs"]), dtype=bool)
+            )
+            rng, rng_eval_rs = jax.random.split(rng)
+            eval_runner_state = (
+                    train_state,
+                    eval_obsv,
+                    jnp.zeros((self.eval_config["num_envs"]), dtype=bool),
+                    init_rnn_state_eval,
+                    rng_eval_rs,
+                )
+
+            # COLLECT TRAJECTORIES FROM IMITATOR (CPU)
             traj_batch_eval_list = []
-            for _ in range(self.config["num_steps_eval"]):
-                runner_state, transition = _env_step_eval(runner_state)
+            for _ in range(self.eval_config["num_steps"]):
+                eval_runner_state, transition = _env_step_eval(eval_runner_state)
                 traj_batch_eval_list.append(transition)
             traj_batch_eval = concatenate_transitions(traj_batch_eval_list)
 
+            # COMPUTE METRICS
             reward_sum = traj_batch_eval.reward.sum(axis=0)
             num_reward = (traj_batch_eval.reward > 0).sum(axis=0)
             done_sum = traj_batch_eval.done.sum(axis=0)
@@ -302,26 +319,15 @@ class make_train_bc:
                 "success_rate": [success_rate],
             }
 
-            train_state = update_state[0]
-            rng = update_state[-1]
+            return cary, metric
 
-            runner_state = (train_state, last_obsv, last_done, rnn_state, rng)
-            return runner_state, metric
-
-        _, _rng = jax.random.split(self.key)
-        runner_state = (
-            train_state,
-            obsv,
-            jnp.zeros((self.config["num_envs"]), dtype=bool),
-            init_rnn_state_train,
-            init_rnn_state_eval,
-            _rng,
-        )
+        _, rng = jax.random.split(self.key)
+        cary = (train_state, rng)
 
         metrics = []
         for update in range(self.config["num_updates"]):
             time_start = time.time()
-            runner_state, train_metric = _update_step(runner_state, None)
+            cary, train_metric = _update_step(cary, None)
 
             metrics.append(jax.tree_map(lambda x: jnp.mean(x), train_metric))
 
@@ -365,7 +371,7 @@ class make_train_bc:
                     os.path.join(self.config["log_folder"], f"params_{update}.pkl"),
                     "wb",
                 ) as f:
-                    pickle.dump(runner_state[0].params, f)
+                    pickle.dump(train_state.params, f)
 
             with open(
                 os.path.join(self.config["log_folder"], "args.json"), "w"
@@ -376,7 +382,7 @@ class make_train_bc:
         self.env._env.stop()
 
         return {
-            "runner_state": runner_state,
+            "train_state": train_state,
             "metric": concatenate_dicts(metrics),
             "config": self.config,
         }
