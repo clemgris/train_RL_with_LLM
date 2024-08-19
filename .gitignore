@@ -2,7 +2,9 @@
 __pycache__/
 
 # Training logs
-logs_rl
+logs_ppo
+logs_dqn
+logs_bc
 animations
 
 # VSCODE settings
