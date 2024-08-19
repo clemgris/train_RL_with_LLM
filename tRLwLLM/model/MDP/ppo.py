@@ -13,10 +13,10 @@ from tRLwLLM.utils import TransitionRL, concatenate_dicts, concatenate_transitio
 
 from ..feature_extractor import KeyExtractor
 from ..obs_preprocessing import ExtractObs
-from .policy import ActorCriticRNN
+from .policy import ActorCritic
 
 
-def make_train_rl(config):
+class make_train_rl:
     def __init__(self, config):
         self.config = config
 
@@ -42,6 +42,8 @@ def make_train_rl(config):
         # ENVIRONMENT
         self.env = BabyAI(self.config)
 
+        self.config["rf_height"] = self.env._env.agent_view_size
+        self.config["rf_width"] = self.env._env.agent_view_size
         self.config["height"] = self.env._env.height
         self.config["width"] = self.env._env.width
 
@@ -62,13 +64,11 @@ def make_train_rl(config):
         self.feature_extractor = KeyExtractor
         self.feature_extractor_kwargs = self.config["feature_extractor_kwargs"]
 
-        network = ActorCriticRNN(
-            action_dim=1,
-            discrete=True,
+        network = ActorCritic(
             feature_extractor_class=self.feature_extractor,
             feature_extractor_kwargs=self.feature_extractor_kwargs,
             num_action=self.env._env.action_space.n,
-            num_components=None,
+            activation=self.config['activation']
         )
 
         init_x = self.extractor.init_x(self.config["num_envs"])

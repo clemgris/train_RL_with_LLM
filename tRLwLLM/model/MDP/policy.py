@@ -12,7 +12,9 @@ tfd = tfp.distributions
 
 
 class ActorCritic(nn.Module):
-    action_dim: Sequence[int]
+    num_action: Sequence[int]
+    feature_extractor_class: nn.Module
+    feature_extractor_kwargs: Optional[Union[Dict, None]]
     activation: str = "tanh"
 
     @nn.compact
@@ -21,22 +23,30 @@ class ActorCritic(nn.Module):
             activation = nn.relu
         else:
             activation = nn.tanh
+
+        # State feature extractor
+        state_features = self.feature_extractor_class(**self.feature_extractor_kwargs)(
+            x
+        )
+
+        # Actor
         actor_mean = nn.Dense(
             64, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
-        )(x)
+        )(state_features)
         actor_mean = activation(actor_mean)
         actor_mean = nn.Dense(
             64, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
         )(actor_mean)
         actor_mean = activation(actor_mean)
         actor_mean = nn.Dense(
-            self.action_dim, kernel_init=orthogonal(0.01), bias_init=constant(0.0)
+            self.num_action, kernel_init=orthogonal(0.01), bias_init=constant(0.0)
         )(actor_mean)
         pi = distrax.Categorical(logits=actor_mean)
 
+        # Critic
         critic = nn.Dense(
             64, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
-        )(x)
+        )(state_features)
         critic = activation(critic)
         critic = nn.Dense(
             64, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
