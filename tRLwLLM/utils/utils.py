@@ -42,7 +42,7 @@ def concatenate_transitions(
     transitions: List[Union[TransitionRL, TransitionBC]],
 ) -> Union[TransitionRL, TransitionBC]:
     dict_res = {}
-    ()
+
     if isinstance(transitions[0], TransitionRL):
         list_attr = ["done", "action", "value", "reward", "log_prob", "obs", "info"]
     elif isinstance(transitions[0], TransitionBC):
@@ -64,6 +64,8 @@ def concatenate_transitions(
             dict_res[key] = concatenate_dicts(
                 [getattr(trans, key) for trans in transitions]
             )
-    ()
-    res = TransitionRL(**dict_res)
+    if isinstance(transitions[0], TransitionRL):
+        res = TransitionRL(**dict_res)
+    elif isinstance(transitions[0], TransitionBC):
+        res = TransitionBC(**dict_res)
     return res
