@@ -41,53 +41,21 @@ class TransitionBC(NamedTuple):
 def concatenate_transitions(
     transitions: List[Union[TransitionRL, TransitionBC]],
 ) -> Union[TransitionRL, TransitionBC]:
-    if isinstance(transitions[0], TransitionRL):
-        dict_res = {
-            "done": None,
-            "action": None,
-            "value": None,
-            "reward": None,
-            "log_prob": None,
-            "obs": None,
-            "info": None,
-        }
+    dict_res = {}
+    for key in transitions[0].keys():
+        dict_res[key] = None
 
-        dict_res["done"] = jnp.concatenate(
-            [trans.done[None] for trans in transitions], axis=0
-        )
-        dict_res["action"] = jnp.concatenate(
-            [trans.action[None] for trans in transitions], axis=0
-        )
-        dict_res["value"] = jnp.concatenate(
-            [trans.value[None] for trans in transitions], axis=0
-        )
-        dict_res["reward"] = jnp.concatenate(
-            [trans.reward[None] for trans in transitions], axis=0
-        )
-        dict_res["log_prob"] = jnp.concatenate(
-            [trans.log_prob[None] for trans in transitions], axis=0
-        )
-        dict_res["obs"] = concatenate_dicts([trans.obs for trans in transitions])
-        dict_res["info"] = concatenate_dicts([trans.info for trans in transitions])
+    for key in dict_res.keys():
+        if getattr(transitions[0], key) is None:
+            dict_res[key] = None
+        elif isinstance(getattr(transitions[0], key), jnp.ndarray):
+            dict_res[key] = jnp.concatenate(
+                [getattr(trans, key)[None] for trans in transitions], axis=0
+            )
+        elif isinstance(getattr(transitions[0], key), Dict):
+            dict_res[key] = concatenate_dicts(
+                [getattr(trans, key) for trans in transitions]
+            )
 
-        res = TransitionRL(**dict_res)
-
-    elif isinstance(transitions[0], TransitionBC):
-        dict_res = {
-            "done": None,
-            "expert_action": None,
-            "obs": None,
-            "info": None,
-        }
-
-        dict_res["done"] = jnp.concatenate(
-            [trans.done[None] for trans in transitions], axis=0
-        )
-        dict_res["expert_action"] = jnp.concatenate(
-            [trans.expert_action[None] for trans in transitions], axis=0
-        )
-        dict_res["obs"] = concatenate_dicts([trans.obs for trans in transitions])
-        dict_res["info"] = concatenate_dicts([trans.info for trans in transitions])
-
-        res = TransitionBC(**dict_res)
+    res = TransitionRL(**dict_res)
     return res
