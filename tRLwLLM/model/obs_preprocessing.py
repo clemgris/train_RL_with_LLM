@@ -18,6 +18,19 @@ def im_dir_extract(obs, last_obs, done):
     return im_dir
 
 
+def full_im_pos_dir_extract(obs, last_obs, done):
+    full_image = obs["image"]  # (B, H, W, C)
+    _, H, W, _ = full_image.shape
+    pos = obs["agent_pos"]  # (B, 2)
+    extanded_pos = jnp.tile(pos[..., None, None, :], (1, H, W, 1))
+    dir = obs["direction"]  # (B,)
+    extanded_dir = jnp.tile(dir[..., None, None, None], (1, H, W, 1))
+
+    full_im_pos_dir = jnp.concatenate((full_image, extanded_pos, extanded_dir), axis=-1)
+
+    return full_im_pos_dir
+
+
 def mission_extract(obs, last_obsv, done):
     if jnp.any(done):
         mission = list(obs["mission"])  # List of len B
@@ -25,11 +38,11 @@ def mission_extract(obs, last_obsv, done):
         # ert pre-trained semantic encoder
         with torch.no_grad():
             tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
-            model = BertModel.from_pretrained("bert-base-uncased").cuda()
+            model = BertModel.from_pretrained("bert-base-uncased")  # .cuda()
 
             tokenized = tokenizer(
                 mission, padding=True, truncation=True, return_tensors="pt"
-            ).to("cuda")
+            )  # .to("cuda")
             outputs = model(**tokenized)
             # Get the embedding of the entire sentence
             mission_embedding = outputs.last_hidden_state[:, 0, ...]  # (B, 768)
@@ -44,7 +57,12 @@ EXTRACTOR_DICT = {"im_dir": im_dir_extract, "mission": mission_extract}
 
 def init_dict(config, batch_size):
     return {
-        "im_dir": jnp.zeros((1, batch_size, config["height"], config["width"], 4)),
+        "im_dir": jnp.zeros(
+            (1, batch_size, config["rf_height"], config["rf_width"], 4)
+        ),
+        "full_im_pos_dir": jnp.zeros(
+            (1, batch_size, config["height"], config["width"], 6)
+        ),
         "mission": jnp.zeros((1, batch_size, 768)),
     }
 
@@ -64,7 +82,7 @@ class ExtractObs:
             for subkey in list_subkeys:
                 if subkey in self.config["feature_extractor_kwargs"]["kwargs"]:
                     kwargs = self.config["feature_extractor_kwargs"]["kwargs"][subkey]
-                    obs_feature = EXTRACTOR_DICT[subkey](obs, last_obsv, done**kwargs)
+                    obs_feature = EXTRACTOR_DICT[subkey](obs, last_obsv, done, **kwargs)
                 else:
                     obs_feature = EXTRACTOR_DICT[subkey](obs, last_obsv, done)
                 obs_features[subkey] = obs_feature

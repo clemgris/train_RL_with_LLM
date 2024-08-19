@@ -23,10 +23,19 @@ def multi_worker(conn, envs, experts):
             for env, expert, a, stopped in zip(envs, experts, data[0], data[1]):
                 if not stopped:
                     obs, reward, done, _, info = env.step(a)
+
                     done = done or (env.unwrapped.step_count >= env.unwrapped.max_steps)
                     if done:
                         obs, info = env.reset()
                         expert.reset(env)
+
+                    # Add agent position in the grid
+                    obs["agent_pos"] = env.unwrapped.agent_pos
+                    # Add full observation of the grid
+                    grid = env.unwrapped.grid
+                    vis_mask = np.ones(shape=(grid.width, grid.height), dtype=bool)
+                    full_im = grid.encode(vis_mask)
+                    obs["full_im"] = full_im
                     ret.append((obs, reward, done, info))
                 else:
                     ret.append((None, 0, False, None))
@@ -44,6 +53,13 @@ def multi_worker(conn, envs, experts):
             ret = []
             for env, expert in zip(envs, experts):
                 obs, info = env.reset()
+                # Add agent position in the grid
+                obs["agent_pos"] = env.unwrapped.agent_pos
+                # Add full observation of the grid
+                grid = env.unwrapped.grid
+                vis_mask = np.ones(shape=(grid.width, grid.height), dtype=bool)
+                full_im = grid.encode(vis_mask)
+                obs["full_im"] = full_im
                 expert.reset(env)
                 ret.append((obs, info))
             conn.send(ret)
