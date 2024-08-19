@@ -1,6 +1,7 @@
 from .utils import (
-    TransitionRL,
+    TransitionPPO,
     TransitionBC,
+    TransitionDQN,
     concatenate_dicts,
     concatenate_transitions,
 )

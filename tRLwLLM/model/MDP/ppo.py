@@ -9,7 +9,7 @@ from flax.training.train_state import TrainState
 import time
 
 from tRLwLLM.environment import BabyAI
-from tRLwLLM.utils import TransitionRL, concatenate_dicts, concatenate_transitions
+from tRLwLLM.utils import TransitionPPO, concatenate_dicts, concatenate_transitions
 
 from ..feature_extractor import KeyExtractor
 from ..obs_preprocessing import ExtractObs
@@ -22,7 +22,7 @@ def extand(x):
     else:
         return
 
-class make_train_rl:
+class make_train_ppo:
     def __init__(self, config):
         self.config = config
 
@@ -78,7 +78,6 @@ class make_train_rl:
         )
 
         init_x = self.extractor.init_x(self.config["num_envs"])
-
         network_params = network.init(self.key, init_x[0])
 
         # Count number of parameters
@@ -128,7 +127,7 @@ class make_train_rl:
             obs, reward, done, info = self.env.step(action)
             obsv = self.extractor(obs, last_obsv, done)
 
-            transition = TransitionRL(
+            transition = TransitionPPO(
                 last_done, action, value, reward, log_prob, last_obsv, info
             )
 
@@ -272,13 +271,13 @@ class make_train_rl:
 
         # TRAIN LOOP
         def _update_step(runner_state, unused):
+
             # COLLECT TRAJECTORIES (CPU)
             traj_batch_list = []
             for _ in range(self.config["num_steps"]):
                 runner_state, transition = _env_step(runner_state)
                 traj_batch_list.append(transition)
             traj_batch = concatenate_transitions(traj_batch_list)
-
 
             # CALCULATE ADVANTAGE
             train_state, last_obsv, last_done, _, rng = runner_state
@@ -301,7 +300,7 @@ class make_train_rl:
                 success_rate,
                 explained_variance,
             ) = aux
-            metric = metric = {
+            metric = {
                 "loss": [total_loss],
                 "value_loss": [value_loss],
                 "actor_loss": [loss_actor],

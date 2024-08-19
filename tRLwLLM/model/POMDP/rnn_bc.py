@@ -12,7 +12,7 @@ import time
 from tRLwLLM.environment import BabyAI
 from tRLwLLM.utils import (
     TransitionBC,
-    TransitionRL,
+    TransitionPPO,
     concatenate_dicts,
     concatenate_transitions,
 )
@@ -165,7 +165,7 @@ class make_train_rnn_bc:
             obs, reward, done, info = self.eval_env.step(action)
             obsv = self.extractor(obs, last_obsv, done)
 
-            transition = TransitionRL(
+            transition = TransitionPPO(
                 last_done, action, value, reward, log_prob, last_obsv, info
             )
             runner_state = (

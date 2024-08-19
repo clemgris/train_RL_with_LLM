@@ -1,5 +1,6 @@
-from .MDP.ppo import make_train_rl
-from .MDP.policy import ActorCritic
+from .MDP.ppo import make_train_ppo
+from .MDP.dqn import make_train_dqn
+from .MDP.policy import ActorCritic, QNetwork
 from .POMDP.rnn_bc import make_train_rnn_bc
 from .POMDP.rnn_ppo import make_train_rnn_rl
 from .POMDP.rnn_policy import ActorCriticRNN, ScannedRNN

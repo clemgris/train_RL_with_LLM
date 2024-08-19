@@ -1,5 +1,6 @@
 from typing import Dict, List, NamedTuple, Union
 
+import chex
 import jax.numpy as jnp
 import numpy as np
 
@@ -21,7 +22,7 @@ def concatenate_dicts(dict_list: List):
     return dict_res
 
 
-class TransitionRL(NamedTuple):
+class TransitionPPO(NamedTuple):
     done: Union[np.ndarray, jnp.ndarray]
     action: Union[np.ndarray, jnp.ndarray]
     value: Union[np.ndarray, jnp.ndarray]
@@ -38,15 +39,24 @@ class TransitionBC(NamedTuple):
     info: Dict
 
 
-def concatenate_transitions(
-    transitions: List[Union[TransitionRL, TransitionBC]],
-) -> Union[TransitionRL, TransitionBC]:
-    dict_res = {}
+class TransitionDQN(NamedTuple):
+    done: Union[np.ndarray, jnp.ndarray]
+    action: Union[np.ndarray, jnp.ndarray]
+    reward: Union[np.ndarray, jnp.ndarray]
+    obs: Dict
+    info: Dict
 
-    if isinstance(transitions[0], TransitionRL):
+
+def concatenate_transitions(
+    transitions: List[Union[TransitionPPO, TransitionBC, TransitionDQN]],
+) -> Union[TransitionPPO, TransitionBC]:
+    dict_res = {}
+    if isinstance(transitions[0], TransitionPPO):
         list_attr = ["done", "action", "value", "reward", "log_prob", "obs", "info"]
     elif isinstance(transitions[0], TransitionBC):
         list_attr = ["done", "expert_action", "obs", "info"]
+    elif isinstance(transitions[0], TransitionDQN):
+        list_attr = ["done", "action", "obs", "info"]
     else:
         raise ValueError("Unknown transition type of environment.")
     for key in list_attr:
@@ -64,8 +74,10 @@ def concatenate_transitions(
             dict_res[key] = concatenate_dicts(
                 [getattr(trans, key) for trans in transitions]
             )
-    if isinstance(transitions[0], TransitionRL):
-        res = TransitionRL(**dict_res)
+    if isinstance(transitions[0], TransitionPPO):
+        res = TransitionPPO(**dict_res)
     elif isinstance(transitions[0], TransitionBC):
         res = TransitionBC(**dict_res)
+    elif isinstance(transitions[0], TransitionDQN):
+        res = TransitionDQN(**dict_res)
     return res
