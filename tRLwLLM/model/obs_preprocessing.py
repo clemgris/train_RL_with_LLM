@@ -35,14 +35,14 @@ def mission_extract(obs, last_obsv, done):
     if jnp.any(done):
         mission = list(obs["mission"])  # List of len B
 
-        # ert pre-trained semantic encoder
+        # Bert pre-trained semantic encoder
         with torch.no_grad():
             tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
-            model = BertModel.from_pretrained("bert-base-uncased")  # .cuda()
+            model = BertModel.from_pretrained("bert-base-uncased").cuda()
 
             tokenized = tokenizer(
                 mission, padding=True, truncation=True, return_tensors="pt"
-            )  # .to("cuda")
+            ).to("cuda")
             outputs = model(**tokenized)
             # Get the embedding of the entire sentence
             mission_embedding = outputs.last_hidden_state[:, 0, ...]  # (B, 768)
@@ -52,7 +52,11 @@ def mission_extract(obs, last_obsv, done):
     return mission_embedding
 
 
-EXTRACTOR_DICT = {"im_dir": im_dir_extract, "mission": mission_extract}
+EXTRACTOR_DICT = {
+    "im_dir": im_dir_extract,
+    "full_im_pos_dir": full_im_pos_dir_extract,
+    "mission": mission_extract,
+}
 
 
 def init_dict(config, batch_size):
