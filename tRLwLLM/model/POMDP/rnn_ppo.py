@@ -50,9 +50,10 @@ class make_train_rnn_rl:
         # ENVIRONMENT
         self.env = BabyAI(self.config)
 
-        H, W, _ = self.env._env.observation_space["image"].shape
-        self.config["height"] = H
-        self.config["width"] = W
+        self.config["rf_height"] = self.env._env.agent_view_size
+        self.config["rf_width"] = self.env._env.agent_view_size
+        self.config["height"] = self.env._env.height
+        self.config["width"] = self.env._env.width
 
     # LEARNING RATE SCHEDULER
     def linear_schedule(self, count):
