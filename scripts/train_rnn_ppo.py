@@ -31,7 +31,7 @@ if __name__ == "__main__":
         "key": 42,
         "learning_rate": 2.5e-4,
         "max_grad_norm": 0.5,
-        "num_envs": 8,  # 32,
+        "num_envs": 32,
         "num_minibatchs": 4,  # Must divide num_envs
         "num_steps": 128,
         "total_time_steps": 5e8,
@@ -49,5 +49,5 @@ if __name__ == "__main__":
 
     training = make_train_rnn_rl(config)
 
-    with jax.disable_jit():  # DEBUG
-        training_dict = training.train()
+    # with jax.disable_jit():  # DEBUG
+    training_dict = training.train()
