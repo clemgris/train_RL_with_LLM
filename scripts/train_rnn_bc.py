@@ -6,7 +6,7 @@ import sys
 
 sys.path.append(".")
 
-from tRLwLLM.model import make_train_bc
+from tRLwLLM.model import make_train_rnn_bc
 
 # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 print(jax.devices())
@@ -59,7 +59,7 @@ if __name__ == "__main__":
 
     config["log_folder"] = log_folder
 
-    training = make_train_bc(config, eval_config)
+    training = make_train_rnn_bc(config, eval_config)
 
     # with jax.disable_jit():  # DEBUG
     training_dict = training.train()
