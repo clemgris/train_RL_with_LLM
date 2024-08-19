@@ -14,6 +14,7 @@ os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
 if __name__ == "__main__":
     config = {
+        "activation": "tanh",
         "DEBUG": True,
         "aneal_learning_rate": True,
         "clip_eps": 0.2,
