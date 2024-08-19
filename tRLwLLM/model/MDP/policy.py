@@ -19,6 +19,7 @@ class ActorCritic(nn.Module):
 
     @nn.compact
     def __call__(self, x):
+
         if self.activation == "relu":
             activation = nn.relu
         else:
@@ -28,7 +29,6 @@ class ActorCritic(nn.Module):
         state_features = self.feature_extractor_class(**self.feature_extractor_kwargs)(
             x
         )
-
         # Actor
         actor_mean = nn.Dense(
             64, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)

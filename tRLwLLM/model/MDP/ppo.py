@@ -16,6 +16,12 @@ from ..obs_preprocessing import ExtractObs
 from .policy import ActorCritic
 
 
+def extand(x):
+    if isinstance(x, jnp.ndarray):
+        return x[jnp.newaxis, ...]
+    else:
+        return
+
 class make_train_rl:
     def __init__(self, config):
         self.config = config
@@ -33,7 +39,7 @@ class make_train_rl:
             // self.config["num_steps"]
             // self.config["num_envs"]
         )
-        self.config["MINIBATCH_SIZE"] = (
+        self.config["minibatch_size"] = (
             self.config["num_envs"]
             * self.config["num_steps"]
             // self.config["num_minibatchs"]
@@ -73,7 +79,7 @@ class make_train_rl:
 
         init_x = self.extractor.init_x(self.config["num_envs"])
 
-        network_params = network.init(self.key, init_x)
+        network_params = network.init(self.key, init_x[0])
 
         # Count number of parameters
         flat_params, _ = jax.tree_util.tree_flatten(network_params)
@@ -107,11 +113,11 @@ class make_train_rl:
             train_state, last_obsv, last_done, _, rng = runner_state
 
             # SELECT ACTION
-            pi, value = network.apply(train_state.params, last_obsv)
+            pi, value = network.apply(train_state.params, jax.tree_map(extand, last_obsv))
 
             rng, rng_sample_action = jax.random.split(rng)
             action = pi.sample(seed=rng_sample_action)
-            log_prob = pi.log_prob(action).squeeze(-1)
+            log_prob = pi.log_prob(action)
             value, action, log_prob = (
                 value.squeeze(0),
                 action.squeeze(0),
@@ -125,12 +131,14 @@ class make_train_rl:
             transition = TransitionRL(
                 last_done, action, value, reward, log_prob, last_obsv, info
             )
+
             runner_state = (train_state, obsv, done, None, rng)
             return runner_state, transition
 
         # CALCULATE ADVANTAGE
         def _calculate_gae(traj_batch, last_val, last_done):
             def _get_advantages(carry, transition):
+
                 gae, next_value, next_done = carry
                 done, value, reward = (
                     transition.done,
@@ -159,10 +167,12 @@ class make_train_rl:
             return advantages, advantages + traj_batch.value
 
         # PPO LOSS
-        def _loss_fn(params, rnn_state, traj_batch, gae, targets):
+        def _loss_fn(params, traj_batch, gae, targets):
             # RERUN NETWORK
-            pi, value = network.apply(traj_batch.obs)
-            log_prob = pi.log_prob(traj_batch.action).squeeze(-1)
+
+            pi, value = network.apply(params, jax.tree_map(extand, traj_batch.obs))
+
+            log_prob = pi.log_prob(traj_batch.action)
 
             # CALCULATE VALUE LOSS
             value_pred_clipped = traj_batch.value + (value - traj_batch.value).clip(
@@ -231,12 +241,13 @@ class make_train_rl:
 
         # UPDATE NETWORK
         def _update_single(update_state, unused):
+
             train_state, traj_batch, advantages, targets, rng = update_state
             rng, _rng = jax.random.split(rng)
             # Batching and Shuffling
-            batch_size = config["MINIBATCH_SIZE"] * config["NUM_MINIBATCHES"]
+            batch_size = self.config["minibatch_size"] * self.config["num_minibatchs"]
             assert (
-                batch_size == config["NUM_STEPS"] * config["NUM_ENVS"]
+                batch_size == self.config["num_steps"] * self.config["num_envs"]
             ), "batch size must be equal to number of steps * number of envs"
             permutation = jax.random.permutation(_rng, batch_size)
             batch = (traj_batch, advantages, targets)
@@ -249,7 +260,7 @@ class make_train_rl:
             # Mini-batch Updates
             minibatches = jax.tree_util.tree_map(
                 lambda x: jnp.reshape(
-                    x, [config["NUM_MINIBATCHES"], -1] + list(x.shape[1:])
+                    x, [self.config["num_minibatchs"], -1] + list(x.shape[1:])
                 ),
                 shuffled_batch,
             )
@@ -268,16 +279,18 @@ class make_train_rl:
                 traj_batch_list.append(transition)
             traj_batch = concatenate_transitions(traj_batch_list)
 
+
             # CALCULATE ADVANTAGE
             train_state, last_obsv, last_done, _, rng = runner_state
-            _, last_val = network.apply(train_state.params, last_obsv)
+            _, last_val = network.apply(train_state.params, jax.tree_map(extand, last_obsv))
+            last_val = last_val.squeeze(0)
 
-            advantages, targets = _calculate_gae(traj_batch, last_val)
+            advantages, targets = _calculate_gae(traj_batch, last_val, last_done)
 
             # Updating Training State and Metrics:
             update_state = (train_state, traj_batch, advantages, targets, rng)
             update_state, (total_loss, aux) = jax.lax.scan(
-                _update_single, update_state, None, config["update_epochs"]
+                _update_single, update_state, None, self.config["update_epochs"]
             )
 
             (
