@@ -36,7 +36,11 @@ class Identity:
         return x
 
 
-FEATURES_EXTRACTOR_DICT = {"im_dir": ConvNet, "mission": Identity}
+FEATURES_EXTRACTOR_DICT = {
+    "im_dir": ConvNet,
+    "full_im_pos_dir": ConvNet,
+    "mission": Identity,
+}
 
 
 class KeyExtractor(nn.Module):
