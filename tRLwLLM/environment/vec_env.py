@@ -100,7 +100,7 @@ class ParallelEnv(gym.Env):
         self.max_steps = self.envs[0].unwrapped.max_steps
         self.height = self.envs[0].unwrapped.grid.height
         self.width = self.envs[0].unwrapped.grid.width
-        self.agent_view_size = self.envs[0].agent_view_size
+        self.agent_view_size = self.envs[0].unwrapped.agent_view_size
 
         self.envs_per_proc = math.ceil(self.num_envs / self.num_cores)
 
