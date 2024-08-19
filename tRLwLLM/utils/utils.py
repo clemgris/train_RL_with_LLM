@@ -22,18 +22,18 @@ def concatenate_dicts(dict_list: List):
 
 
 class TransitionRL(NamedTuple):
-    done: jnp.ndarray
-    action: jnp.ndarray
-    value: jnp.ndarray
-    reward: jnp.ndarray
-    log_prob: jnp.ndarray
+    done: Union[np.ndarray, jnp.ndarray]
+    action: Union[np.ndarray, jnp.ndarray]
+    value: Union[np.ndarray, jnp.ndarray]
+    reward: Union[np.ndarray, jnp.ndarray]
+    log_prob: Union[np.ndarray, jnp.ndarray]
     obs: Dict
     info: Dict
 
 
 class TransitionBC(NamedTuple):
-    done: jnp.ndarray
-    expert_action: jnp.ndarray
+    done: Union[np.ndarray, jnp.ndarray]
+    expert_action: Union[np.ndarray, jnp.ndarray]
     obs: Dict
     info: Dict
 
@@ -42,6 +42,7 @@ def concatenate_transitions(
     transitions: List[Union[TransitionRL, TransitionBC]],
 ) -> Union[TransitionRL, TransitionBC]:
     dict_res = {}
+    ()
     if isinstance(transitions[0], TransitionRL):
         list_attr = ["done", "action", "value", "reward", "log_prob", "obs", "info"]
     elif isinstance(transitions[0], TransitionBC):
@@ -53,8 +54,9 @@ def concatenate_transitions(
 
     for key in dict_res.keys():
         if getattr(transitions[0], key) is None:
+
             dict_res[key] = None
-        elif isinstance(getattr(transitions[0], key), jnp.ndarray):
+        elif isinstance(getattr(transitions[0], key), Union[np.ndarray, jnp.ndarray]):
             dict_res[key] = jnp.concatenate(
                 [getattr(trans, key)[None] for trans in transitions], axis=0
             )
@@ -62,6 +64,6 @@ def concatenate_transitions(
             dict_res[key] = concatenate_dicts(
                 [getattr(trans, key) for trans in transitions]
             )
-
+    ()
     res = TransitionRL(**dict_res)
     return res
