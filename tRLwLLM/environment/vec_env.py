@@ -35,7 +35,7 @@ def multi_worker(conn, envs, experts):
                     grid = env.unwrapped.grid
                     vis_mask = np.ones(shape=(grid.width, grid.height), dtype=bool)
                     full_im = grid.encode(vis_mask)
-                    obs["full_im"] = full_im
+                    obs["full_image"] = full_im
                     ret.append((obs, reward, done, info))
                 else:
                     ret.append((None, 0, False, None))
@@ -59,7 +59,7 @@ def multi_worker(conn, envs, experts):
                 grid = env.unwrapped.grid
                 vis_mask = np.ones(shape=(grid.width, grid.height), dtype=bool)
                 full_im = grid.encode(vis_mask)
-                obs["full_im"] = full_im
+                obs["full_image"] = full_im
                 expert.reset(env)
                 ret.append((obs, info))
             conn.send(ret)
@@ -98,6 +98,9 @@ class ParallelEnv(gym.Env):
         self.observation_space = self.envs[0].observation_space
         self.num_cores = num_cores
         self.max_steps = self.envs[0].unwrapped.max_steps
+        self.height = self.envs[0].unwrapped.grid.height
+        self.width = self.envs[0].unwrapped.grid.width
+        self.agent_view_size = self.envs[0].agent_view_size
 
         self.envs_per_proc = math.ceil(self.num_envs / self.num_cores)
 

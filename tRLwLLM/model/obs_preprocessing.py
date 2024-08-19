@@ -19,7 +19,7 @@ def im_dir_extract(obs, last_obs, done):
 
 
 def full_im_pos_dir_extract(obs, last_obs, done):
-    full_image = obs["image"]  # (B, H, W, C)
+    full_image = obs["full_image"]  # (B, H, W, C)
     _, H, W, _ = full_image.shape
     pos = obs["agent_pos"]  # (B, 2)
     extanded_pos = jnp.tile(pos[..., None, None, :], (1, H, W, 1))
