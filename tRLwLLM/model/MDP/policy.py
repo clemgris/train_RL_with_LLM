@@ -57,3 +57,23 @@ class ActorCritic(nn.Module):
         )
 
         return pi, jnp.squeeze(critic, axis=-1)
+
+
+class QNetwork(nn.Module):
+    num_action: Sequence[int]
+    feature_extractor_class: nn.Module
+    feature_extractor_kwargs: Optional[Union[Dict, None]]
+
+    @nn.compact
+    def __call__(self, x):
+
+        # State feature extractor
+        state_features = self.feature_extractor_class(**self.feature_extractor_kwargs)(
+            x
+        )
+        x = nn.Dense(64)(state_features)
+        x = nn.relu(x)
+        x = nn.Dense(64)(x)
+        x = nn.relu(x)
+        x = nn.Dense(self.num_action)(x)
+        return x
