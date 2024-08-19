@@ -42,7 +42,13 @@ def concatenate_transitions(
     transitions: List[Union[TransitionRL, TransitionBC]],
 ) -> Union[TransitionRL, TransitionBC]:
     dict_res = {}
-    for key in transitions[0].keys():
+    if isinstance(transitions[0], TransitionRL):
+        list_attr = ["done", "action", "value", "reward", "log_prob", "obs", "info"]
+    elif isinstance(transitions[0], TransitionBC):
+        list_attr = ["done", "expert_action", "obs", "info"]
+    else:
+        raise ValueError("Unknown transition type of environment.")
+    for key in list_attr:
         dict_res[key] = None
 
     for key in dict_res.keys():
