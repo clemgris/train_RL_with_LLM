@@ -9,6 +9,7 @@ from flax.training.train_state import TrainState
 import time
 import flax
 import flashbax as fbx
+import numpy as np
 
 from tRLwLLM.environment import BabyAI
 from tRLwLLM.utils import TransitionDQN, concatenate_dicts, concatenate_transitions
@@ -59,6 +60,159 @@ class make_train_dqn:
         self,
     ):
 
+        # epsilon-greedy exploration
+        def eps_greedy_exploration(rng, q_vals, t):
+            rng_a, rng_e = jax.random.split(
+                rng, 2
+            )  # a key for sampling random actions and one for picking
+            eps = jnp.clip(  # get epsilon
+                (
+                    (self.config["epsilon_finish"] - self.config["epsilon_start"])
+                    / self.config["epsilon_anneal_time"]
+                )
+                * t
+                + self.config["epsilon_start"],
+                self.config["epsilon_finish"],
+            )
+            greedy_actions = jnp.argmax(q_vals, axis=-1)  # get the greedy actions
+            chosed_actions = jnp.where(
+                jax.random.uniform(rng_e, greedy_actions.shape)
+                < eps,  # pick the actions that should be random
+                jax.random.randint(
+                    rng_a,
+                    shape=greedy_actions.shape,
+                    minval=0,
+                    maxval=q_vals.shape[-1],
+                ),  # sample random actions,
+                greedy_actions,
+            )
+            return chosed_actions
+
+        # DQN LOSS
+        def _loss_fn(params, learn_batch, target):
+            q_vals = network.apply(
+                params, jax.tree_map(extand, learn_batch.first.obs)
+            ).squeeze(0)  # (batch_size, num_actions)
+            chosen_action_qvals = jnp.take_along_axis(
+                q_vals,
+                jnp.expand_dims(learn_batch.first.action, axis=-1),
+                axis=-1,
+            ).squeeze(axis=-1)
+            return jnp.mean((chosen_action_qvals - target) ** 2)
+
+        # NETWORKS UPDATE
+        def _learn_phase(train_state, buffer_state, rng):
+
+            learn_batch = buffer.sample(buffer_state, rng).experience
+
+            q_next_target = network.apply(
+                train_state.target_network_params, jax.tree_map(extand, learn_batch.second.obs)
+            )  # (batch_size, num_actions)
+            q_next_target = jnp.max(q_next_target, axis=-1)  # (batch_size,)
+            target = (
+                learn_batch.first.reward
+                + (1 - learn_batch.first.done) * self.config["gamma"] * q_next_target
+            )
+
+            loss, grads = jax.value_and_grad(_loss_fn)(
+                train_state.params, learn_batch, target
+            )
+            train_state = train_state.apply_gradients(grads=grads)
+            train_state = train_state.replace(n_updates=train_state.n_updates + 1)
+
+            return train_state, loss
+
+        jitted_learn_phase = jax.jit(_learn_phase)
+
+        # TRAINING LOOP
+        def _update_step(runner_state, unused):
+
+            train_state, buffer_state, last_obsv, rng = runner_state
+
+            # STEP THE ENV
+            rng, rng_sample_action = jax.random.split(rng)
+            q_vals = network.apply(
+                train_state.params, jax.tree_map(extand, last_obsv)
+            )
+            action = eps_greedy_exploration(
+                rng_sample_action, q_vals, train_state.timesteps
+            ).squeeze(0)  # explore with epsilon greedy_exploration
+
+            obs, reward, done, info = self.env.step(action)
+            obsv = self.extractor(obs, last_obsv, done)
+
+            train_state = train_state.replace(
+                timesteps=train_state.timesteps + self.config["num_envs"]
+            )  # update timesteps count
+
+            # UPDATE BUFFER
+            timestep = TransitionDQN(
+                done,
+                np.array(action, dtype='int64'),
+                np.array(reward, dtype='int64'),
+                last_obsv,
+                info,
+            )
+            buffer_state = buffer.add(buffer_state, timestep)
+
+            is_learn_time = (
+                (buffer.can_sample(buffer_state))
+                & (  # enough experience in buffer
+                    train_state.timesteps > self.config["learning_starts"]
+                )
+                & (  # pure exploration phase ended
+                    train_state.timesteps % self.config["training_interval"] == 0
+                )  # training interval
+            )
+
+            rng, rng_learn = jax.random.split(rng)
+            train_state, loss = jax.lax.cond(
+                is_learn_time,
+                lambda train_state, buffer_state, rng: jitted_learn_phase(train_state, buffer_state, rng),
+                lambda train_state, buffer_state, rng: (
+                    train_state,
+                    jnp.array(0.0),
+                ),  # do nothing
+                train_state,
+                buffer_state,
+                rng_learn,
+            )
+
+            # UPDATE TARGET NETWORK
+            train_state = jax.lax.cond(
+                train_state.timesteps % self.config["target_update_interval"] == 0,
+                lambda train_state: train_state.replace(
+                    target_network_params=optax.incremental_update(
+                        train_state.params,
+                        train_state.target_network_params,
+                        self.config["tau"],
+                    )
+                ),
+                lambda train_state: train_state,
+                operand=train_state,
+            )
+
+            traj_batch = buffer_state.experience
+            reward_sum = traj_batch.reward.sum(axis=0)
+            num_reward = (traj_batch.reward > 0).sum(axis=0)
+            done_sum = traj_batch.done.sum(axis=0)
+            mean_cum_reward = jnp.where(done_sum != 0, reward_sum / done_sum, 0).mean()
+            mean_success_rate = jnp.where(
+                done_sum != 0, num_reward / done_sum, 0
+            ).mean()
+
+            metrics = {
+                "timesteps": train_state.timesteps,
+                "updates": train_state.n_updates,
+                "loss": loss.mean(),
+                "cum_reward": mean_cum_reward,
+                "mean_success_rate": mean_success_rate,
+            }
+
+            runner_state = (train_state, buffer_state, obsv, rng)
+
+            return runner_state, metrics
+
         # INIT BUFFER
         buffer = fbx.make_flat_buffer(
             max_length=self.config["buffer_size"],
@@ -100,9 +254,8 @@ class make_train_dqn:
         action = jnp.zeros((self.config["num_envs"], 1), dtype='int32').squeeze(-1)
         obs, reward, done, info = self.env.step(action)
         obsv = self.extractor(obs, last_obsv, done)
-        init_timestep = TransitionDQN(done, action, reward, obsv, info)
+        init_timestep = TransitionDQN(done[0], action[0], reward[0], jax.tree_map(lambda x : x[0], obsv), info)
         buffer_state = buffer.init(init_timestep)
-        breakpoint()
 
         # RESET ENV
         obs, _ = self.env.reset()
@@ -131,145 +284,6 @@ class make_train_dqn:
             timesteps=0,
             n_updates=0,
         )
-
-        # epsilon-greedy exploration
-        def eps_greedy_exploration(rng, q_vals, t):
-            rng_a, rng_e = jax.random.split(
-                rng, 2
-            )  # a key for sampling random actions and one for picking
-            eps = jnp.clip(  # get epsilon
-                (
-                    (self.config["epsilon_finish"] - self.config["epsilon_start"])
-                    / self.config["epsilon_anneal_time"]
-                )
-                * t
-                + self.config["epsilon_start"],
-                self.config["epsilon_finish"],
-            )
-            greedy_actions = jnp.argmax(q_vals, axis=-1)  # get the greedy actions
-            chosed_actions = jnp.where(
-                jax.random.uniform(rng_e, greedy_actions.shape)
-                < eps,  # pick the actions that should be random
-                jax.random.randint(
-                    rng_a,
-                    shape=greedy_actions.shape,
-                    minval=0,
-                    maxval=q_vals.shape[-1],
-                ),  # sample random actions,
-                greedy_actions,
-            )
-            return chosed_actions
-
-        # DQN LOSS
-        def _loss_fn(params, learn_batch, target):
-            q_vals = network.apply(
-                params, learn_batch.first.obs
-            )  # (batch_size, num_actions)
-            chosen_action_qvals = jnp.take_along_axis(
-                q_vals,
-                jnp.expand_dims(learn_batch.first.action, axis=-1),
-                axis=-1,
-            ).squeeze(axis=-1)
-            return jnp.mean((chosen_action_qvals - target) ** 2)
-
-        # NETWORKS UPDATE
-        def _learn_phase(train_state, rng):
-
-            learn_batch = buffer.sample(buffer_state, rng).experience
-
-            q_next_target = network.apply(
-                train_state.target_network_params, learn_batch.second.obs
-            )  # (batch_size, num_actions)
-            q_next_target = jnp.max(q_next_target, axis=-1)  # (batch_size,)
-            target = (
-                learn_batch.first.reward
-                + (1 - learn_batch.first.done) * self.config["gamma"] * q_next_target
-            )
-
-            loss, grads = jax.value_and_grad(_loss_fn)(
-                train_state.params, learn_batch, target
-            )
-            train_state = train_state.apply_gradients(grads=grads)
-            train_state = train_state.replace(n_updates=train_state.n_updates + 1)
-            return train_state, loss
-
-        # TRAINING LOOP
-        def _update_step(runner_state, unused):
-
-            train_state, buffer_state, last_obsv, rng = runner_state
-
-            # STEP THE ENV
-            rng, rng_sample_action = jax.random.split(rng)
-            q_vals = network.apply(
-                train_state.params, jax.tree_map(extand, last_obsv)
-            )
-            action = eps_greedy_exploration(
-                rng_sample_action, q_vals, train_state.timesteps
-            ).squeeze(0)  # explore with epsilon greedy_exploration
-
-            obs, reward, done, info = self.env.step(action)
-            obsv = self.extractor(obs, last_obsv, done)
-
-            train_state = train_state.replace(
-                timesteps=train_state.timesteps + self.config["num_envs"]
-            )  # update timesteps count
-
-            # UPDATE BUFFER
-            timestep = TransitionDQN(
-                done,
-                action,
-                reward,
-                last_obsv,
-                info,
-            )
-            breakpoint()
-            buffer_state = buffer.add(buffer_state, timestep)
-
-            rng, _rng = jax.random.split(rng)
-            is_learn_time = (
-                (buffer.can_sample(buffer_state))
-                & (  # enough experience in buffer
-                    train_state.timesteps > self.config["learning_starts"]
-                )
-                & (  # pure exploration phase ended
-                    train_state.timesteps % self.config["training_interval"] == 0
-                )  # training interval
-            )
-            train_state, loss = jax.lax.cond(
-                is_learn_time,
-                lambda train_state, rng: _learn_phase(train_state, rng),
-                lambda train_state, rng: (
-                    train_state,
-                    jnp.array(0.0),
-                ),  # do nothing
-                train_state,
-                _rng,
-            )
-
-            # UPDATE TARGET NETWORK
-            train_state = jax.lax.cond(
-                train_state.timesteps % self.config["target_update_interval"] == 0,
-                lambda train_state: train_state.replace(
-                    target_network_params=optax.incremental_update(
-                        train_state.params,
-                        train_state.target_network_params,
-                        self.config["tau"],
-                    )
-                ),
-                lambda train_state: train_state,
-                operand=train_state,
-            )
-
-            metrics = {
-                "timesteps": train_state.timesteps,
-                "updates": train_state.n_updates,
-                "loss": loss.mean(),
-                "returns": info["returned_episode_returns"].mean(),
-            }
-
-            runner_state = (train_state, buffer_state, obsv, rng)
-
-            return runner_state, metrics
 
         # train
         rng, _rng = jax.random.split(self.key)
@@ -324,16 +338,16 @@ class make_train_dqn:
                 ) as f:
                     pickle.dump(runner_state[0].params, f)
 
-            with open(
-                os.path.join(self.config["log_folder"], "args.json"), "w"
-            ) as json_file:
-                json.dump(self.config, json_file, indent=4)
+        with open(
+            os.path.join(self.config["log_folder"], "args.json"), "w"
+        ) as json_file:
+            json.dump(self.config, json_file, indent=4)
 
-            # Stop environment
-            self.env._env.stop()
+        # Stop environment
+        self.env._env.stop()
 
-            return {
-            "runner_state": runner_state,
-            "metric": concatenate_dicts(metrics),
-            "self.config": self.config,
-            }
+        return {
+        "runner_state": runner_state,
+        "metric": concatenate_dicts(metrics),
+        "self.config": self.config,
+        }
