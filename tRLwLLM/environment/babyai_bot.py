@@ -1027,3 +1027,11 @@ class BabyAIBot:
             and self.prev_fwd_cell.type == "box"
         ):
             raise DisappearedBoxError("A box was opened. I am not sure I can help now.")
+
+
+class DumbBabyAIBot:
+    def __init__(self, env) -> None:
+        return None
+
+    def reset(self, env):
+        self.__init__(env)

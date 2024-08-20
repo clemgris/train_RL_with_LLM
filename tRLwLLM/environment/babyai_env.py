@@ -3,7 +3,7 @@ from tRLwLLM.utils import concatenate_dicts
 
 from .base_env import BaseEnv
 from .vec_env import ParallelEnv
-from .babyai_bot import BabyAIBot
+from .babyai_bot import BabyAIBot, DumbBabyAIBot
 
 
 class BabyAI(BaseEnv):
@@ -17,7 +17,10 @@ class BabyAI(BaseEnv):
             env = gym.make(self.config["env_name"], render_mode="rgb_array")
             env.reset(seed=100 * self.config["key"] + i)
             envs.append(env)
-            experts.append(BabyAIBot(env))
+            if "BabyAI" in self.config["env_name"]:
+                experts.append(BabyAIBot(env))
+            else:
+                experts.append(DumbBabyAIBot(env))
 
         self._env = ParallelEnv(envs, experts)
 
