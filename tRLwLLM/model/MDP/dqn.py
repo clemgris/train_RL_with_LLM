@@ -10,6 +10,7 @@ import time
 import flax
 import flashbax as fbx
 import numpy as np
+from tqdm import tqdm
 
 from tRLwLLM.environment import BabyAI
 from tRLwLLM.utils import TransitionDQN, concatenate_dicts, concatenate_transitions
@@ -32,8 +33,9 @@ class CustomTrainState(TrainState):
 
 
 class make_train_dqn:
-    def __init__(self, config):
+    def __init__(self, config, eval_config):
         self.config = config
+        self.eval_config = eval_config
 
         # DEVICE
         self.devices = jax.devices()
@@ -50,6 +52,7 @@ class make_train_dqn:
 
         # ENVIRONMENT
         self.env = BabyAI(self.config)
+        self.eval_env = BabyAI(self.eval_config)
 
         self.config["rf_height"] = self.env._env.agent_view_size
         self.config["rf_width"] = self.env._env.agent_view_size
@@ -60,20 +63,25 @@ class make_train_dqn:
         self,
     ):
 
-        # epsilon-greedy exploration
+        # ESPILON-GREEDY EXPLORATION
         def eps_greedy_exploration(rng, q_vals, t):
             rng_a, rng_e = jax.random.split(
                 rng, 2
             )  # a key for sampling random actions and one for picking
-            eps = jnp.clip(  # get epsilon
-                (
-                    (self.config["epsilon_finish"] - self.config["epsilon_start"])
-                    / self.config["epsilon_anneal_time"]
+
+            if t < self.config["learning_starts"]:
+                eps = self.config["epsilon_start"]
+            else:
+                t -= self.config["learning_starts"]
+                eps = jnp.clip(  # get epsilon
+                    (
+                        (self.config["epsilon_finish"] - self.config["epsilon_start"])
+                        / self.config["epsilon_anneal_time"]
+                    )
+                    * t
+                    + self.config["epsilon_start"],
+                    self.config["epsilon_finish"],
                 )
-                * t
-                + self.config["epsilon_start"],
-                self.config["epsilon_finish"],
-            )
             greedy_actions = jnp.argmax(q_vals, axis=-1)  # get the greedy actions
             chosed_actions = jnp.where(
                 jax.random.uniform(rng_e, greedy_actions.shape)
@@ -86,7 +94,26 @@ class make_train_dqn:
                 ),  # sample random actions,
                 greedy_actions,
             )
-            return chosed_actions
+            return chosed_actions, eps
+
+        # COLLECT TRAJECTORIES
+        def _env_step_eval(runner_state):
+            train_state, last_obsv, last_done = runner_state
+
+            # SELECT ACTION
+            q_vals = network.apply(
+                train_state.params, jax.tree_map(extand, last_obsv)
+            )
+            action = jnp.argmax(q_vals, axis=-1).squeeze(0)
+
+            # STEP ENV
+            obs, reward, done, info = self.eval_env.step(action)
+            obsv = self.extractor(obs, last_obsv, done)
+
+            transition = TransitionDQN(last_done, action, reward, last_obsv, info)
+
+            runner_state = (train_state, obsv, done)
+            return runner_state, transition
 
         # DQN LOSS
         def _loss_fn(params, learn_batch, target):
@@ -134,9 +161,11 @@ class make_train_dqn:
             q_vals = network.apply(
                 train_state.params, jax.tree_map(extand, last_obsv)
             )
-            action = eps_greedy_exploration(
+            action, eps = eps_greedy_exploration(
                 rng_sample_action, q_vals, train_state.timesteps
-            ).squeeze(0)  # explore with epsilon greedy_exploration
+            )  # explore with epsilon greedy_exploration
+
+            action = action.squeeze(0)
 
             obs, reward, done, info = self.env.step(action)
             obsv = self.extractor(obs, last_obsv, done)
@@ -149,7 +178,7 @@ class make_train_dqn:
             timestep = TransitionDQN(
                 done,
                 np.array(action, dtype='int64'),
-                np.array(reward, dtype='int64'),
+                np.array(reward, dtype='float32'),
                 last_obsv,
                 info,
             )
@@ -192,7 +221,36 @@ class make_train_dqn:
                 operand=train_state,
             )
 
-            traj_batch = buffer_state.experience
+            # traj_batch = buffer_state.experience
+            # reward_sum = traj_batch.reward.sum(axis=1)
+            # num_reward = (traj_batch.reward > 0).sum(axis=1)
+            # done_sum = traj_batch.done.sum(axis=1)
+            # mean_cum_reward = jnp.where(done_sum != 0, reward_sum / done_sum, 0).mean()
+            # mean_success_rate = jnp.where(
+            #     done_sum != 0, num_reward / done_sum, 0
+            # ).mean()
+
+            metrics = {
+                "timesteps": train_state.timesteps,
+                "updates": train_state.n_updates,
+                "loss": loss.mean(),
+                # "cum_reward": mean_cum_reward,
+                # "mean_success_rate": mean_success_rate,
+                "eps": eps,
+            }
+
+            runner_state = (train_state, buffer_state, obsv, rng)
+
+            return runner_state, metrics
+
+        # EVALUATE POLICY
+        def _eval_phase(runner_state):
+            traj_batches = []
+            for _ in range(self.config["num_eval_steps"]):
+                runner_state, transition = _env_step_eval(runner_state)
+                traj_batches.append(transition)
+            traj_batch = concatenate_transitions(traj_batches)
+
             reward_sum = traj_batch.reward.sum(axis=0)
             num_reward = (traj_batch.reward > 0).sum(axis=0)
             done_sum = traj_batch.done.sum(axis=0)
@@ -201,15 +259,9 @@ class make_train_dqn:
                 done_sum != 0, num_reward / done_sum, 0
             ).mean()
 
-            metrics = {
-                "timesteps": train_state.timesteps,
-                "updates": train_state.n_updates,
-                "loss": loss.mean(),
-                "cum_reward": mean_cum_reward,
-                "mean_success_rate": mean_success_rate,
-            }
-
-            runner_state = (train_state, buffer_state, obsv, rng)
+            metrics = {"cum_reward": mean_cum_reward,
+                       "mean_success_rate": mean_success_rate,
+                       "num_finished_episode": done_sum.sum()}
 
             return runner_state, metrics
 
@@ -241,7 +293,7 @@ class make_train_dqn:
         init_x = self.extractor.init_x(self.config["num_envs"])
         network_params = network.init(self.key, init_x[0])
 
-        # Count number of parameters
+        # COUNT PARAMETERS
         flat_params, _ = jax.tree_util.tree_flatten(network_params)
         network_size = sum(p.size for p in flat_params)
         print(f"Number of parameters: {network_size}")
@@ -254,7 +306,10 @@ class make_train_dqn:
         action = jnp.zeros((self.config["num_envs"], 1), dtype='int32').squeeze(-1)
         obs, reward, done, info = self.env.step(action)
         obsv = self.extractor(obs, last_obsv, done)
-        init_timestep = TransitionDQN(done[0], action[0], reward[0], jax.tree_map(lambda x : x[0], obsv), info)
+        init_timestep = TransitionDQN(done[0], action[0],
+                                      np.array(reward[0], dtype='float32'),
+                                      jax.tree_map(lambda x : x[0], obsv),
+                                      info)
         buffer_state = buffer.init(init_timestep)
 
         # RESET ENV
@@ -262,6 +317,9 @@ class make_train_dqn:
         obsv = self.extractor(
             obs, None, jnp.ones((self.config["num_envs"]), dtype=bool)
         )
+
+        eval_obs, _ = self.eval_env.reset()
+        eval_obsv = self.extractor(eval_obs, None, jnp.ones((self.eval_config["num_envs"]), dtype=bool))
 
         def linear_schedule(count):
             frac = 1.0 - (count / self.config["num_updates"])
@@ -272,7 +330,7 @@ class make_train_dqn:
             if self.config.get("lr_decay_linear", False)
             else self.config["lr"]
         )
-        tx = optax.adam(learning_rate=lr)
+        tx = optax.adam(learning_rate=lr, eps=self.config['adam_eps'])
 
         train_state = CustomTrainState.create(
             apply_fn=network.apply,
@@ -285,12 +343,26 @@ class make_train_dqn:
             n_updates=0,
         )
 
-        # train
-        rng, _rng = jax.random.split(self.key)
-        runner_state = (train_state, buffer_state, obsv, _rng)
+        _, rng_init = jax.random.split(self.key)
+        runner_state = (train_state, buffer_state, obsv, rng_init)
 
+        eval_runner_state = (train_state, eval_obsv, jnp.zeros((self.eval_config["num_envs"]), dtype=bool),)
+
+        # POPULATE BUFFER
+        for update in tqdm(range(self.config["learning_starts"] // self.config["num_envs"]), "Populate buffer"):
+            time_start = time.time()
+            runner_state, train_metric = _update_step(runner_state, None)
+
+        # SAVE TRAINING ARGS
+        with open(
+            os.path.join(self.config["log_folder"], "args.json"), "w"
+        ) as json_file:
+            json.dump(self.config, json_file, indent=4)
+
+        # TRAIN
         metrics = []
         for update in range(self.config["num_updates"]):
+
             time_start = time.time()
             runner_state, train_metric = _update_step(runner_state, None)
 
@@ -304,6 +376,19 @@ class make_train_dqn:
 
             print(train_message)
 
+            # EVAL
+            eval_runner_state = (runner_state[0], eval_runner_state[1], eval_runner_state[2])
+
+            if (update % self.config["freq_eval"] == 0):
+                eval_runner_state, eval_metrics = _eval_phase(eval_runner_state)
+
+                eval_message = f" Eval | "
+                for key, value in eval_metrics.items():
+                    eval_message += f" {key} | {jnp.array(value).mean():.6f} | "
+
+                print(eval_message)
+
+            # SAVE
             if (update % self.config["freq_save"] == 0) or (
                 update == self.config["num_updates"] - 1
             ):
@@ -337,11 +422,6 @@ class make_train_dqn:
                     "wb",
                 ) as f:
                     pickle.dump(runner_state[0].params, f)
-
-        with open(
-            os.path.join(self.config["log_folder"], "args.json"), "w"
-        ) as json_file:
-            json.dump(self.config, json_file, indent=4)
 
         # Stop environment
         self.env._env.stop()

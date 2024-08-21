@@ -56,7 +56,7 @@ def concatenate_transitions(
     elif isinstance(transitions[0], TransitionBC):
         list_attr = ["done", "expert_action", "obs", "info"]
     elif isinstance(transitions[0], TransitionDQN):
-        list_attr = ["done", "action", "obs", "info"]
+        list_attr = ["done", "action", "reward", "obs", "info"]
     else:
         raise ValueError("Unknown transition type of environment.")
     for key in list_attr:
