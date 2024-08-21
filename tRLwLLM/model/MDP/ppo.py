@@ -65,47 +65,6 @@ class make_train_ppo:
     def train(
         self,
     ):
-        # INIT NETWORK
-        self.extractor = ExtractObs(self.config)
-        self.feature_extractor = KeyExtractor
-        self.feature_extractor_kwargs = self.config["feature_extractor_kwargs"]
-
-        network = ActorCritic(
-            feature_extractor_class=self.feature_extractor,
-            feature_extractor_kwargs=self.feature_extractor_kwargs,
-            num_action=self.env._env.action_space.n,
-            activation=self.config['activation']
-        )
-
-        init_x = self.extractor.init_x(self.config["num_envs"])
-        network_params = network.init(self.key, init_x[0])
-
-        # Count number of parameters
-        flat_params, _ = jax.tree_util.tree_flatten(network_params)
-        network_size = sum(p.size for p in flat_params)
-        print(f"Number of parameters: {network_size}")
-
-        if self.config["aneal_learning_rate"]:
-            tx = optax.chain(
-                optax.clip_by_global_norm(self.config["max_grad_norm"]),
-                optax.adam(learning_rate=self.linear_schedule, eps=1e-5),
-            )
-        else:
-            tx = optax.chain(
-                optax.clip_by_global_norm(self.config["max_grad_norm"]),
-                optax.adam(self.config["learning_rate"], eps=1e-5),
-            )
-        train_state = TrainState.create(
-            apply_fn=network.apply,
-            params=network_params,
-            tx=tx,
-        )
-
-        # INIT ENV
-        obs, _ = self.env.reset()
-        obsv = self.extractor(
-            obs, None, jnp.ones((self.config["num_envs"]), dtype=bool)
-        )
 
         # COLLECT TRAJECTORIES
         def _env_step(runner_state):
@@ -315,6 +274,48 @@ class make_train_ppo:
 
             runner_state = (train_state, last_obsv, last_done, None, rng)
             return runner_state, metric
+
+        # INIT NETWORK
+        self.extractor = ExtractObs(self.config)
+        self.feature_extractor = KeyExtractor
+        self.feature_extractor_kwargs = self.config["feature_extractor_kwargs"]
+
+        network = ActorCritic(
+            feature_extractor_class=self.feature_extractor,
+            feature_extractor_kwargs=self.feature_extractor_kwargs,
+            num_action=self.env._env.action_space.n,
+            activation=self.config['activation']
+        )
+
+        init_x = self.extractor.init_x(self.config["num_envs"])
+        network_params = network.init(self.key, init_x[0])
+
+        # Count number of parameters
+        flat_params, _ = jax.tree_util.tree_flatten(network_params)
+        network_size = sum(p.size for p in flat_params)
+        print(f"Number of parameters: {network_size}")
+
+        if self.config["aneal_learning_rate"]:
+            tx = optax.chain(
+                optax.clip_by_global_norm(self.config["max_grad_norm"]),
+                optax.adam(learning_rate=self.linear_schedule, eps=1e-5),
+            )
+        else:
+            tx = optax.chain(
+                optax.clip_by_global_norm(self.config["max_grad_norm"]),
+                optax.adam(self.config["learning_rate"], eps=1e-5),
+            )
+        train_state = TrainState.create(
+            apply_fn=network.apply,
+            params=network_params,
+            tx=tx,
+        )
+
+        # INIT ENV
+        obs, _ = self.env.reset()
+        obsv = self.extractor(
+            obs, None, jnp.ones((self.config["num_envs"]), dtype=bool)
+        )
 
         _, _rng = jax.random.split(self.key)
         runner_state = (
