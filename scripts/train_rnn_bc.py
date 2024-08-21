@@ -54,7 +54,7 @@ if __name__ == "__main__":
     current_time = datetime.now()
     date_string = current_time.strftime("%Y%m%d_%H%M%S")
 
-    log_folder = f"logs_bc/{date_string}"
+    log_folder = f"logs_rnn_bc/{date_string}"
     os.makedirs(log_folder, exist_ok="True")
 
     config["log_folder"] = log_folder

@@ -19,11 +19,11 @@ if __name__ == "__main__":
         "aneal_learning_rate": True,
         "clip_eps": 0.2,
         "ent_coef": 0.01,
-        "env_name": "BabyAI-GoToLocalS8N7-v0",
+        "env_name": "MiniGrid-Empty-8x8-v0",  # "BabyAI-GoToLocalS8N7-v0",
         "feature_extractor_kwargs": {
             "final_hidden_layers": 64,
-            "hidden_layers": {"full_im_pos_dir": 64, "mission": None},
-            "keys": ["full_im_pos_dir", "mission"],
+            "hidden_layers": {"full_im_pos_dir": 64},  # , "mission": None},
+            "keys": ["full_im_pos_dir"],  # "mission"],
             "kwargs": {},
         },
         "freq_save": 1,
@@ -35,7 +35,7 @@ if __name__ == "__main__":
         "num_envs": 32,
         "num_minibatchs": 4,  # Must divide num_envs
         "num_steps": 128,
-        "total_time_steps": 5e8,
+        "total_time_steps": 5e6,
         "update_epochs": 1,
         "vf_coef": 0.5,
     }
@@ -43,12 +43,12 @@ if __name__ == "__main__":
     current_time = datetime.now()
     date_string = current_time.strftime("%Y%m%d_%H%M%S")
 
-    log_folder = f"logs_rl/{date_string}"
+    log_folder = f"logs_ppo/{date_string}"
     os.makedirs(log_folder, exist_ok="True")
 
     config["log_folder"] = log_folder
 
     training = make_train_ppo(config)
 
-    # with jax.disable_jit():  # DEBUG
-    training_dict = training.train()
+    with jax.disable_jit():  # DEBUG
+        training_dict = training.train()
