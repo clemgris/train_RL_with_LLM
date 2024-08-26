@@ -22,9 +22,9 @@ def multi_worker(conn, envs, experts):
             ret = []
             for env, expert, a, stopped in zip(envs, experts, data[0], data[1]):
                 if not stopped:
-                    obs, reward, done, _, info = env.step(a)
+                    obs, reward, done, truncated, info = env.step(a)
 
-                    done = done or (env.unwrapped.step_count >= env.unwrapped.max_steps)
+                    done = done or truncated
                     if done:
                         obs, info = env.reset()
                         expert.reset(env)
@@ -62,6 +62,12 @@ def multi_worker(conn, envs, experts):
                 obs["full_image"] = full_im
                 expert.reset(env)
                 ret.append((obs, info))
+            conn.send(ret)
+        # sample uniformally action
+        elif cmd == "sample":
+            ret = []
+            for env in envs:
+                ret.append(env.action_space.sample())
             conn.send(ret)
         # render_one()
         elif cmd == "render_one":
@@ -224,6 +230,15 @@ class ParallelEnv(gym.Env):
         self.ts[done_mask] *= 0
 
         return [obs for obs in self.obss], reward, done_mask, info
+
+    def sample(self):
+        for local in self.locals:
+            local.send(("sample", None))
+        sample_actions = []
+        for local in self.locals:
+            res = local.recv()
+            sample_actions.append(res)
+        return np.concatenate(sample_actions)[..., None]
 
     def request_expert_actions(self):
         """Request processes to return expert action"""

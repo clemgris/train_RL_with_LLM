@@ -38,5 +38,9 @@ class BabyAI(BaseEnv):
         obs, rews, dones, infos = self._env.step(actions)
         return self.__generate_obs(obs), rews, dones, self.__prepare_infos(infos)
 
+    def sample(self):
+        random_action = self._env.sample()
+        return random_action
+
     def get_expert_action(self):
         return self._env.get_expert_action()
