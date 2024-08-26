@@ -2,4 +2,5 @@ flax
 distrax
 transformers
 torch2jax
+torchrl
 minigrid==2.3.1
