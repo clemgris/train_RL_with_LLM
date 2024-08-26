@@ -71,9 +71,9 @@ class QNetwork(nn.Module):
         state_features = self.feature_extractor_class(**self.feature_extractor_kwargs)(
             x
         )
-        x = nn.Dense(64)(state_features)
+        x = nn.Dense(512)(state_features)
         x = nn.relu(x)
-        x = nn.Dense(64)(x)
+        x = nn.Dense(512)(x)
         x = nn.relu(x)
         x = nn.Dense(self.num_action)(x)
         return x

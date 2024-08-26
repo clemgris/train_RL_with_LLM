@@ -12,13 +12,12 @@ class ConvNet(nn.Module):
 
     @nn.compact
     def __call__(self, x):
+        x = nn.Conv(features=32, kernel_size=(3, 3))(x)
+        x = jax.nn.relu(x)
         x = nn.Conv(features=64, kernel_size=(3, 3))(x)
         x = jax.nn.relu(x)
-        # x = nn.Conv(features=64, kernel_size=(3, 3))(x)
-        # x = jax.nn.relu(x)
-        x = nn.Conv(features=64, kernel_size=(3, 3))(x)
+        x = nn.Conv(features=128, kernel_size=(3, 3))(x)
         x = jax.nn.relu(x)
-        x = nn.max_pool(x, window_shape=(2, 2), strides=(2, 2))
 
         T, B, _, _, _ = x.shape
         x = x.reshape((T, B, -1))  # Flatten
