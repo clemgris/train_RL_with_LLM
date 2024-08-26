@@ -1,25 +1,8 @@
 from typing import Dict, List, NamedTuple, Union
-
-import chex
 import jax.numpy as jnp
 import numpy as np
 
-
-def concatenate_dicts(dict_list: List):
-    dict_res = {}
-
-    if not dict_list or all(not d for d in dict_list):
-        return dict_res
-
-    keys = set().union(*(d.keys() for d in dict_list))
-
-    for key in keys:
-        if isinstance(dict_list[0][key], np.ndarray):
-            res = jnp.concatenate([d[key][None] for d in dict_list if d])
-        else:
-            res = np.array([d[key] for d in dict_list if d])
-        dict_res[key] = res
-    return dict_res
+from torchrl.data import PrioritizedReplayBuffer, ListStorage
 
 
 class TransitionPPO(NamedTuple):
@@ -40,11 +23,59 @@ class TransitionBC(NamedTuple):
 
 
 class TransitionDQN(NamedTuple):
-    done: Union[np.ndarray, jnp.ndarray]
+    state: Dict
     action: Union[np.ndarray, jnp.ndarray]
+    next_state: Dict
     reward: Union[np.ndarray, jnp.ndarray]
-    obs: Dict
-    info: Dict
+    done: Union[np.ndarray, jnp.ndarray]
+
+
+class ReplayMemory:
+    def __init__(self, size, alpha=0.0, beta=0):
+        self.buffer = PrioritizedReplayBuffer(
+            storage=ListStorage(size), alpha=alpha, beta=beta
+        )
+
+    def push(self, state, action, next_state, reward, done):
+        batch_size = reward.shape[0]
+        for batch in range(batch_size):
+            single_state = {k: v[batch] for k, v in state.items()}
+            single_next_state = {k: v[batch] for k, v in next_state.items()}
+            transition = TransitionDQN(
+                single_state,
+                action[batch],
+                single_next_state,
+                reward[batch],
+                done[batch],
+            )
+            self.buffer.add(transition)
+
+    def sample(self, batch_size):
+        samples, info = self.buffer.sample(batch_size=batch_size, return_info=True)
+        return samples
+
+    def update_priorities(self, indices, priorities):
+        self.buffer.update_priorities(indices, priorities)
+
+    def __len__(self):
+        return len(self.buffer)
+
+
+def concatenate_dicts(dict_list: List):
+    dict_res = {}
+
+    if not dict_list or all(not d for d in dict_list):
+        return dict_res
+
+    keys = set().union(*(d.keys() for d in dict_list))
+
+    for key in keys:
+        if isinstance(dict_list[0][key], np.ndarray):
+            res = np.concatenate([d[key][None] for d in dict_list if d])
+        else:
+            res = np.array([d[key] for d in dict_list if d])
+        dict_res[key] = res
+    return dict_res
 
 
 def concatenate_transitions(
@@ -56,7 +87,7 @@ def concatenate_transitions(
     elif isinstance(transitions[0], TransitionBC):
         list_attr = ["done", "expert_action", "obs", "info"]
     elif isinstance(transitions[0], TransitionDQN):
-        list_attr = ["done", "action", "reward", "obs", "info"]
+        list_attr = ["done", "action", "reward", "state", "next_state"]
     else:
         raise ValueError("Unknown transition type of environment.")
     for key in list_attr:
