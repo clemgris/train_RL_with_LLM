@@ -6,7 +6,7 @@ import sys
 
 sys.path.append(".")
 
-from tRLwLLM.model import make_train_rnn_rl
+from tRLwLLM.model_jax import make_train_rnn_rl
 
 # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 print(jax.devices())
