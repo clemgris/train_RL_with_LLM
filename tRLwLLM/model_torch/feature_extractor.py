@@ -10,20 +10,30 @@ from .obs_preprocessing import init_channels
 
 
 class ConvNet(nn.Module):
-    def __init__(self, final_hidden_layers: int, in_channels: int):
-        self.final_hidden_layers = final_hidden_layers
+    def __init__(
+        self, conv_layers: List[int], final_hidden_layers: int, in_channels: int
+    ):
         super(ConvNet, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, 64, 3)
-        self.conv2 = nn.Conv2d(64, 128, 3)
-        # self.conv3 = nn.Conv2d(128, 128, 3)
-        self.fc1 = nn.Linear(128, 128)
-        self.fc2 = nn.Linear(128, self.final_hidden_layers)
+        self.final_hidden_layers = final_hidden_layers
+
+        # Create convolutional layers dynamically
+        layers = []
+        for i, out_channels in enumerate(conv_layers):
+            conv_layer = nn.Conv2d(in_channels, out_channels, kernel_size=3)
+            layers.append(conv_layer)
+            in_channels = out_channels
+
+        self.conv_layers = nn.ModuleList(layers)
+
+        # Fully connected layers
+        self.fc1 = nn.Linear(conv_layers[-1], self.final_hidden_layers)
+        self.fc2 = nn.Linear(self.final_hidden_layers, self.final_hidden_layers)
 
     def forward(self, x: torch.Tensor):
         x = torch.permute(x, (0, 3, 1, 2))
-        x = F.relu(self.conv1(x))
-        x = F.relu(self.conv2(x))
-        # x = F.relu(self.conv3(x))
+        for conv in self.conv_layers:
+            x = F.relu(conv(x))
+
         x = torch.flatten(x, start_dim=1)
         x = F.relu(self.fc1(x))
         return self.fc2(x)
@@ -38,9 +48,9 @@ class Identity:
 
 
 FEATURES_EXTRACTOR_DICT = {
-    "im": ConvNet,
-    "im_dir": ConvNet,
-    "full_im_pos_dir": ConvNet,
+    "im": lambda **args: ConvNet([32, 64, 128], **args),
+    "im_dir": lambda **args: ConvNet([32, 64, 128], **args),
+    "full_im_pos_dir": lambda **args: ConvNet([64, 128], **args),
     "mission": Identity,
 }
 
