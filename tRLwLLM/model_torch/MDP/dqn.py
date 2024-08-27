@@ -148,7 +148,7 @@ class make_train_dqn:
 
                 eval_rewards = []
                 eval_dones = []
-                while t_eval < 101: #self.eval_env._env.max_steps + 1:
+                while t_eval < self.eval_env._env.max_steps + 1:
                     t_eval += 1
                     with torch.no_grad():
                         eval_action = policy_net(eval_obsv).max(1).indices
@@ -222,17 +222,24 @@ class make_train_dqn:
 
             # SAVE
             if step % self.config["freq_save"] == 0:
-                past_log_metric = os.path.join(
+                past_train_metric = os.path.join(
                     self.config["log_folder"],
                     f'training_metrics_{step - self.config["freq_save"]}.pkl',
+                )
+                past_eval_metric = os.path.join(
+                    self.config["log_folder"],
+                    f'eval_metrics_{step - self.config["freq_save"]}.pkl',
                 )
                 past_log_params = os.path.join(
                     self.config["log_folder"],
                     f'params_{step - self.config["freq_save"]}.pkl',
                 )
 
-                if os.path.exists(past_log_metric):
-                    os.remove(past_log_metric)
+                if os.path.exists(past_train_metric):
+                    os.remove(past_train_metric)
+
+                if os.path.exists(past_eval_metric):
+                    os.remove(past_eval_metric)
 
                 if os.path.exists(past_log_params):
                     os.remove(past_log_params)
