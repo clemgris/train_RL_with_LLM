@@ -13,35 +13,42 @@ from tRLwLLM.model_torch import make_train_dqn
 if __name__ == "__main__":
 
     config = {
-        "env_name": "MiniGrid-Empty-5x5-v0",
-        "key": 42,
-        "num_envs": 128,
         "batch_size": 128,
-        "gamma": 0.99,
-        "eps_start": 0.9,
-        "eps_end": 0.05,
-        "eps_decay": 1000,
-        "tau": 0.005,
-        "lr": 1e-4,
-        "buffer_size": 10000,
+        "buffer_size": 100000,
         "device": "cuda",
-        "timesteps": int(1e5),
-        "grad_clip_value": 100,
+        "env_name": "BabyAI-GoToLocalS8N7-v0",
+        "eps_decay": int(1e9),  # = timesteps
+        "eps_end": 0.05,
+        "eps_start": 0.9,
+        "feature_extractor_kwargs": {
+            "final_hidden_layers": 512,
+            "hidden_layers": {"full_im_pos_dir": 512, "mission": 512},
+            "keys": ["full_im_pos_dir", "mission"],
+            "kwargs": {
+                "full_im_pos_dir": {
+                    "conv_layers": [32, 64, 128],
+                    "height": 8,
+                    "width": 8,
+                },
+                "mission": {},
+            },
+        },
+        "freq_display_training_metrics": 100,
         "freq_eval": 100,
         "freq_save": 100,
-        "freq_display_training_metrics": 100,
-        "feature_extractor_kwargs": {
-            "final_hidden_layers": 64,
-            "hidden_layers": {"full_im_pos_dir": 64},  # , "mission": None},
-            "keys": ["full_im_pos_dir"],  # "mission"],
-            "kwargs": {},
-        },
+        "gamma": 0.99,
+        "grad_clip_value": 100,
+        "key": 42,
+        "lr": 1e-4,
+        "num_envs": 128,
+        "tau": 0.005,
+        "timesteps": int(1e9),
     }
 
     eval_config = {
-        "env_name": "MiniGrid-Empty-5x5-v0",
+        "env_name": config["env_name"],
         "key": 123,
-        "num_envs": 1,
+        "num_envs": 32,
     }
 
     device = torch.device(
