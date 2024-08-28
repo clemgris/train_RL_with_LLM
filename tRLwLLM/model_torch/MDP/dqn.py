@@ -74,13 +74,13 @@ class make_train_dqn:
             chosen_actions[sample > eps_threshold] = greedy_actions[
                 sample > eps_threshold
             ]
-            return chosen_actions
+            return chosen_actions, eps_threshold
 
         def optimize_model():
 
             # ENOUGH EXPERIENCES IN THE BUFFER tO  CREATE AT LEAST ONE BATCH
             if len(memory) < self.config["batch_size"]:
-                return
+                return torch.zeros(size=(1,), device=self.device).squeeze(0)
 
             # UPDATE NETWORK
             batch = memory.sample(self.config["batch_size"])
@@ -127,22 +127,20 @@ class make_train_dqn:
 
         # RESET ENV
         obs, _ = self.env.reset()
-        done = np.zeros(self.config["num_envs"])
-
-        obsv = extractor(obs, None, done)
-        obsv = {k: torch.from_numpy(v).to(dtype=torch.float32, device=self.device) for k,v in obsv.items()}
+        obsv = extractor(obs, None, np.ones(self.config["num_envs"]))
+        obsv = {k: torch.from_numpy(v).to(dtype=torch.float32, device=self.device) if isinstance(v, np.ndarray) else v for k,v in obsv.items()}
 
         training_metrics = []
         eval_metrics = []
+
+        train_metric = []
 
         for step in range(1, self.config["timesteps"]+1):
             # EVAL POLICY
             if step % self.config["freq_eval"] == 0:
                 eval_obs, _ = self.eval_env.reset()
-                eval_done = np.zeros(self.eval_config["num_envs"])
-
-                eval_obsv = extractor(eval_obs, None, eval_done)
-                eval_obsv = {k: torch.from_numpy(v).to(dtype=torch.float32, device=self.device) for k,v in eval_obsv.items()}
+                eval_obsv = extractor(eval_obs, None, np.ones(self.eval_config["num_envs"]))
+                eval_obsv = {k: torch.from_numpy(v).to(dtype=torch.float32, device=self.device) if isinstance(v, np.ndarray) else v for k,v in eval_obsv.items()}
 
                 t_eval = 0
 
@@ -156,8 +154,8 @@ class make_train_dqn:
                         eval_action.to("cpu")
                     )
 
-                    eval_next_obsv = extractor(eval_next_obs, eval_next_obs, eval_done)
-                    eval_next_obsv = {k: torch.from_numpy(v).to(dtype=torch.float32, device=self.device) for k,v in eval_next_obsv.items()}
+                    eval_next_obsv = extractor(eval_next_obs, eval_obsv, eval_done)
+                    eval_next_obsv = {k: torch.from_numpy(v).to(dtype=torch.float32, device=self.device) if isinstance(v, np.ndarray) else v for k,v in eval_next_obsv.items()}
 
                     eval_obsv = eval_next_obsv
 
@@ -183,14 +181,14 @@ class make_train_dqn:
                     eval_message += f" {key} | {value:.4f} | "
                 print(eval_message)
 
-            action = select_action(obsv)
+            action, eps_threshold = select_action(obsv)
 
             next_obs, reward, done, _ = self.env.step(action.to("cpu"))
+            next_obsv = extractor(next_obs, obsv, done)
+
+            next_obsv = {k: torch.from_numpy(v).to(dtype=torch.float32, device=self.device) if isinstance(v, np.ndarray) else v for k,v in next_obsv.items()}
             reward = torch.tensor(reward, device=self.device)
             done = torch.tensor(done, dtype=torch.bool, device=self.device)
-
-            next_obsv = extractor(next_obs, obsv, done)
-            next_obsv = {k: torch.from_numpy(v).to(dtype=torch.float32, device=self.device) for k,v in next_obsv.items()}
 
             # STORE TRANSITION IN REPLAY BUFFER
             memory.push(obsv, action, next_obsv, reward, done)
@@ -203,22 +201,38 @@ class make_train_dqn:
             # optimize_model()
 
             # UPDATE TARGET NETWORK
-            target_net_state_dict = target_net.state_dict()
-            policy_net_state_dict = policy_net.state_dict()
-            for key in policy_net_state_dict:
-                target_net_state_dict[key] = policy_net_state_dict[key] * self.config[
-                    "tau"
-                ] + target_net_state_dict[key] * (1 - self.config["tau"])
-            target_net.load_state_dict(target_net_state_dict)
+            if self.num_updates > 0:
+                target_net_state_dict = target_net.state_dict()
+                policy_net_state_dict = policy_net.state_dict()
+                for key in policy_net_state_dict:
+                    target_net_state_dict[key] = policy_net_state_dict[key] * self.config[
+                        "tau"
+                    ] + target_net_state_dict[key] * (1 - self.config["tau"])
+                target_net.load_state_dict(target_net_state_dict)
 
-            train_metric = {"timetseps": step, "updates": self.num_updates, "loss": training_loss.cpu().detach().numpy()}
-            training_metrics.append(train_metric)
+            train_metric.append({
+                "timesteps": step,
+                "updates": self.num_updates,
+                "loss": training_loss.cpu().detach().numpy(),
+                "eps": eps_threshold
+                })
 
             if step % self.config["freq_display_training_metrics"] == 0:
+
+                train_metric = concatenate_dicts(train_metric)
+                train_metric = {"timesteps": np.max(train_metric["timesteps"]),
+                                "updates": np.max(train_metric["timesteps"]),
+                                "loss": np.mean(train_metric["loss"]),
+                                "eps": np.mean(train_metric["eps"])}
+
+                training_metrics.append(train_metric)
+
                 train_message = f"Step | {step}/{self.config["timesteps"]} | Train | "
                 for key, value in train_metric.items():
                     train_message += f" {key} | {value:.4f} | "
                 print(train_message)
+
+                train_metric = []
 
             # SAVE
             if step % self.config["freq_save"] == 0:

@@ -94,11 +94,7 @@ class ExtractObs:
             else:
                 list_subkeys = [key]
             for subkey in list_subkeys:
-                if subkey in self.config["feature_extractor_kwargs"]["kwargs"]:
-                    kwargs = self.config["feature_extractor_kwargs"]["kwargs"][subkey]
-                    obs_feature = EXTRACTOR_DICT[subkey](obs, last_obsv, done, **kwargs)
-                else:
-                    obs_feature = EXTRACTOR_DICT[subkey](obs, last_obsv, done)
+                obs_feature = EXTRACTOR_DICT[subkey](obs, last_obsv, done)
                 obs_features[subkey] = obs_feature
         return obs_features
 
